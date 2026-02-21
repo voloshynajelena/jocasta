@@ -1,0 +1,25 @@
+{
+  "name": "jocasta",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "db:generate": "pnpm --filter @jocasta/server prisma generate",
+    "db:migrate": "pnpm --filter @jocasta/server prisma migrate dev",
+    "db:push": "pnpm --filter @jocasta/server prisma db push",
+    "db:seed": "pnpm --filter @jocasta/server prisma db seed",
+    "db:studio": "pnpm --filter @jocasta/server prisma studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  }
+}

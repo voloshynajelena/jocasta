@@ -1,0 +1,386 @@
+// Jocasta Scheduler - Database Schema
+// Postgres with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Core Entities
+// ============================================================================
+
+model User {
+  id                   String   @id @default(uuid())
+  email                String   @unique
+  name                 String?
+  avatarUrl            String?  @map("avatar_url")
+  timezone             String   @default("America/Edmonton")
+  defaultTransportMode String   @default("sedan") @map("default_transport_mode")
+
+  // Google OAuth tokens (encrypted)
+  googleRefreshToken   String?   @map("google_refresh_token")
+  googleAccessToken    String?   @map("google_access_token")
+  googleTokenExpiresAt DateTime? @map("google_token_expires_at")
+
+  // Default locations
+  homeLocationId String? @map("home_location_id")
+  workLocationId String? @map("work_location_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  homeLocation Location? @relation("HomeLocation", fields: [homeLocationId], references: [id])
+  workLocation Location? @relation("WorkLocation", fields: [workLocationId], references: [id])
+
+  locations             Location[]             @relation("UserLocations")
+  events                Event[]
+  tasks                 Task[]
+  constraints           Constraint[]
+  recurrenceRules       RecurrenceRule[]
+  travelSegments        TravelSegment[]
+  notificationEndpoints NotificationEndpoint[]
+  notificationJobs      NotificationJob[]
+  googleSyncStates      GoogleSyncState[]
+  userSettings          UserSettings?
+
+  @@map("users")
+}
+
+model Location {
+  id          String  @id @default(uuid())
+  userId      String  @map("user_id")
+  name        String
+  address     String
+  latitude    Float
+  longitude   Float
+  placeId     String? @map("place_id")
+  isDefault   Boolean @default(false) @map("is_default")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                User            @relation("UserLocations", fields: [userId], references: [id], onDelete: Cascade)
+  homeForUsers        User[]          @relation("HomeLocation")
+  workForUsers        User[]          @relation("WorkLocation")
+  events              Event[]
+  tasks               Task[]
+  travelSegmentsFrom  TravelSegment[] @relation("TravelFrom")
+  travelSegmentsTo    TravelSegment[] @relation("TravelTo")
+
+  @@map("locations")
+}
+
+model Event {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  title              String
+  type               String   @default("other")
+  startAt            DateTime @map("start_at")
+  endAt              DateTime @map("end_at")
+  locationId         String?  @map("location_id")
+  isLocked           Boolean  @default(false) @map("is_locked")
+  priority           Int      @default(2)
+  notes              String?
+  source             String   @default("managed")
+  externalProviderId String?  @map("external_provider_id")
+  externalEtag       String?  @map("external_etag")
+  lastModifiedAt     DateTime @default(now()) @map("last_modified_at")
+  recurrenceRuleId   String?  @map("recurrence_rule_id")
+  parentEventId      String?  @map("parent_event_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location          Location?       @relation(fields: [locationId], references: [id])
+  recurrenceRule    RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id])
+  parentEvent       Event?          @relation("EventInstances", fields: [parentEventId], references: [id])
+  childEvents       Event[]         @relation("EventInstances")
+  scheduledTasks    Task[]
+  travelSegmentsTo  TravelSegment[] @relation("TravelToEvent")
+  notificationJobs  NotificationJob[]
+
+  @@index([userId, startAt])
+  @@index([userId, source])
+  @@index([externalProviderId])
+  @@map("events")
+}
+
+model Task {
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  title              String
+  type               String    @default("other")
+  durationMinutes    Int       @map("duration_minutes")
+  durationMinutesMin Int?      @map("duration_minutes_min")
+  durationMinutesMax Int?      @map("duration_minutes_max")
+  locationId         String?   @map("location_id")
+  windowStartAt      DateTime? @map("window_start_at")
+  windowEndAt        DateTime? @map("window_end_at")
+  deadlineAt         DateTime? @map("deadline_at")
+  priority           Int       @default(2)
+  status             String    @default("open")
+  scheduledEventId   String?   @map("scheduled_event_id")
+  notes              String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location       Location? @relation(fields: [locationId], references: [id])
+  scheduledEvent Event?   @relation(fields: [scheduledEventId], references: [id])
+
+  @@index([userId, status])
+  @@map("tasks")
+}
+
+model RecurrenceRule {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  rrule           String
+  timezone        String    @default("America/Edmonton")
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime? @map("end_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events      Event[]
+  constraints Constraint[]
+
+  @@map("recurrence_rules")
+}
+
+model Constraint {
+  id               String  @id @default(uuid())
+  userId           String  @map("user_id")
+  type             String
+  name             String
+  config           Json
+  isActive         Boolean @default(true) @map("is_active")
+  recurrenceRuleId String? @map("recurrence_rule_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurrenceRule RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id])
+
+  @@map("constraints")
+}
+
+model TravelSegment {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  fromEventId    String?   @map("from_event_id")
+  toEventId      String    @map("to_event_id")
+  fromLocationId String?   @map("from_location_id")
+  toLocationId   String    @map("to_location_id")
+  mode           String
+  etaMinutes     Int       @map("eta_minutes")
+  departAt       DateTime  @map("depart_at")
+  arriveAt       DateTime  @map("arrive_at")
+  source         String    @default("directions")
+  confidence     Float     @default(1.0)
+  cachedKey      String?   @map("cached_key")
+  lastComputedAt DateTime  @default(now()) @map("last_computed_at")
+  weatherImpact  Float?    @map("weather_impact")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toEvent      Event     @relation("TravelToEvent", fields: [toEventId], references: [id], onDelete: Cascade)
+  fromLocation Location? @relation("TravelFrom", fields: [fromLocationId], references: [id])
+  toLocation   Location  @relation("TravelTo", fields: [toLocationId], references: [id])
+
+  @@map("travel_segments")
+}
+
+// ============================================================================
+// Notifications
+// ============================================================================
+
+model NotificationEndpoint {
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  channel    String
+  address    String
+  isEnabled  Boolean @default(true) @map("is_enabled")
+  isVerified Boolean @default(false) @map("is_verified")
+  metadata   Json    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs NotificationJob[]
+
+  @@unique([userId, channel, address])
+  @@map("notification_endpoints")
+}
+
+model NotificationJob {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  channel       String
+  endpointId    String    @map("endpoint_id")
+  payload       Json
+  scheduledFor  DateTime  @map("scheduled_for")
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3) @map("max_attempts")
+  lastError     String?   @map("last_error")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  dedupeKey     String    @map("dedupe_key")
+  relatedEventId String?  @map("related_event_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint     NotificationEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  relatedEvent Event?               @relation(fields: [relatedEventId], references: [id])
+
+  @@unique([dedupeKey])
+  @@index([status, scheduledFor])
+  @@index([userId, status])
+  @@map("notification_jobs")
+}
+
+// ============================================================================
+// Google Calendar Sync
+// ============================================================================
+
+model GoogleSyncState {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  calendarId        String    @map("calendar_id")
+  syncToken         String?   @map("sync_token")
+  lastSyncAt        DateTime? @map("last_sync_at")
+  backoffUntil      DateTime? @map("backoff_until")
+  failureCount      Int       @default(0) @map("failure_count")
+  isManagedCalendar Boolean   @default(false) @map("is_managed_calendar")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, calendarId])
+  @@map("google_sync_states")
+}
+
+// ============================================================================
+// Caching Tables
+// ============================================================================
+
+model GeoCache {
+  queryHash        String   @id @map("query_hash")
+  latitude         Float
+  longitude        Float
+  formattedAddress String   @map("formatted_address")
+  provider         String
+  ttlSeconds       Int      @default(604800) @map("ttl_seconds")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("geo_cache")
+}
+
+model DirectionsCache {
+  cacheKey      String   @id @map("cache_key")
+  mode          String
+  fromLatitude  Float    @map("from_latitude")
+  fromLongitude Float    @map("from_longitude")
+  toLatitude    Float    @map("to_latitude")
+  toLongitude   Float    @map("to_longitude")
+  departBucket  String   @map("depart_bucket")
+  etaMinutes    Int      @map("eta_minutes")
+  distanceMeters Int     @map("distance_meters")
+  polyline      String?
+  provider      String
+  ttlSeconds    Int      @default(3600) @map("ttl_seconds")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("directions_cache")
+}
+
+model WeatherCache {
+  id           String   @id @default(uuid())
+  locationHash String   @map("location_hash")
+  timeBucket   String   @map("time_bucket")
+  forecastJson Json     @map("forecast_json")
+  provider     String
+  ttlSeconds   Int      @default(3600) @map("ttl_seconds")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([locationHash, timeBucket])
+  @@map("weather_cache")
+}
+
+// ============================================================================
+// User Settings
+// ============================================================================
+
+model UserSettings {
+  id                     String @id @default(uuid())
+  userId                 String @unique @map("user_id")
+  buffers                Json   @default("[]")
+  reminderMinutesBefore  Json   @default("[30, 10]") @map("reminder_minutes_before")
+  weatherAlerts          Boolean @default(true) @map("weather_alerts")
+  trafficAlerts          Boolean @default(true) @map("traffic_alerts")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ============================================================================
+// Job Queue (for background processing)
+// ============================================================================
+
+model JobQueue {
+  id          String    @id @default(uuid())
+  type        String
+  payload     Json
+  status      String    @default("pending")
+  priority    Int       @default(0)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  runAt       DateTime  @default(now()) @map("run_at")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  failedAt    DateTime? @map("failed_at")
+  error       String?
+  result      Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, runAt, priority])
+  @@map("job_queue")
+}

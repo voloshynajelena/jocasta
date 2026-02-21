@@ -1,11 +1,16 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 
-import { api } from '../../src/services/api';
 import { useAuthStore } from '../../src/store/authStore';
-import { DEMO_SETTINGS, DEMO_GOOGLE_STATUS, DEMO_USER } from '../../src/data/mockData';
+import {
+  DEMO_SETTINGS,
+  DEMO_GOOGLE_SYNC,
+  DEMO_USER,
+  DEMO_BUFFER_RULES,
+  DEMO_CONSTRAINTS,
+  TransportMode,
+} from '../../src/data/demoData';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -14,20 +19,13 @@ export default function SettingsScreen() {
   const logout = useAuthStore((s) => s.logout);
   const isDemoMode = user?.id === 'demo-user';
 
-  const [weatherAlerts, setWeatherAlerts] = useState(true);
-  const [trafficAlerts, setTrafficAlerts] = useState(true);
-
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-    enabled: isAuthenticated && !isDemoMode,
-  });
-
-  const { data: googleStatus } = useQuery({
-    queryKey: ['google-status'],
-    queryFn: () => api.getGoogleSyncStatus(),
-    enabled: isAuthenticated && !isDemoMode,
-  });
+  const [weatherAlerts, setWeatherAlerts] = useState(DEMO_SETTINGS.notifications.weatherAlerts);
+  const [trafficAlerts, setTrafficAlerts] = useState(DEMO_SETTINGS.notifications.trafficAlerts);
+  const [leaveByReminders, setLeaveByReminders] = useState(DEMO_SETTINGS.notifications.leaveByReminders);
+  const [googleSyncEnabled, setGoogleSyncEnabled] = useState(DEMO_SETTINGS.privacy.googleSyncEnabled);
+  const [sendNotesToAI, setSendNotesToAI] = useState(DEMO_SETTINGS.privacy.sendNotesToAI);
+  const [weatherInfluence, setWeatherInfluence] = useState(DEMO_SETTINGS.privacy.weatherInfluence);
+  const [transportMode, setTransportMode] = useState<TransportMode>(DEMO_USER.defaultTransportMode);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -46,23 +44,29 @@ export default function SettingsScreen() {
   if (!isAuthenticated) {
     return (
       <View style={styles.container}>
-        <Text style={styles.authText}>Sign in to view settings</Text>
+        <View style={styles.authPrompt}>
+          <Text style={styles.authTitle}>Settings</Text>
+          <Text style={styles.authSubtitle}>Sign in to customize your experience</Text>
+          <TouchableOpacity
+            style={styles.signInButton}
+            onPress={() => router.push('/(auth)/login')}
+          >
+            <Text style={styles.signInText}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
-  // Use mock data in demo mode
-  const currentSettings = isDemoMode ? DEMO_SETTINGS : settings;
-  const currentGoogleStatus = isDemoMode ? DEMO_GOOGLE_STATUS : googleStatus;
-  const displayUser = isDemoMode ? { ...DEMO_USER, name: 'Elena' } : user;
+  const displayUser = isDemoMode ? DEMO_USER : user;
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.header}>Settings</Text>
 
       {/* Profile Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile</Text>
+        <Text style={styles.sectionTitle}>PROFILE</Text>
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
@@ -72,6 +76,7 @@ export default function SettingsScreen() {
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{displayUser?.name || 'User'}</Text>
             <Text style={styles.profileEmail}>{displayUser?.email}</Text>
+            <Text style={styles.profileTimezone}>📍 Calgary, AB • America/Edmonton</Text>
             {isDemoMode && (
               <View style={styles.demoBadge}>
                 <Text style={styles.demoBadgeText}>Demo Mode</Text>
@@ -81,132 +86,313 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Lifestyle Section */}
+      {/* Transport Mode */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Your Lifestyle</Text>
-        <View style={styles.lifestyleCard}>
-          <View style={styles.lifestyleItem}>
-            <Text style={styles.lifestyleEmoji}>👩‍💼</Text>
-            <Text style={styles.lifestyleText}>Working Mom</Text>
+        <Text style={styles.sectionTitle}>DEFAULT TRANSPORT</Text>
+        <View style={styles.transportModes}>
+          {(['sedan', 'motorcycle', 'taxi', 'transit'] as TransportMode[]).map(mode => (
+            <TouchableOpacity
+              key={mode}
+              style={[styles.transportMode, transportMode === mode && styles.transportModeActive]}
+              onPress={() => setTransportMode(mode)}
+            >
+              <Text style={styles.transportIcon}>{getTransportIcon(mode)}</Text>
+              <Text style={[styles.transportLabel, transportMode === mode && styles.transportLabelActive]}>
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Integrations */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>INTEGRATIONS</Text>
+
+        <View style={styles.integrationCard}>
+          <View style={styles.integrationHeader}>
+            <Text style={styles.integrationIcon}>📅</Text>
+            <View style={styles.integrationInfo}>
+              <Text style={styles.integrationName}>Google Calendar</Text>
+              <Text style={styles.integrationStatus}>
+                {DEMO_GOOGLE_SYNC.isConnected
+                  ? `Synced ${formatLastSync(DEMO_GOOGLE_SYNC.lastSyncAt)}`
+                  : 'Not connected'}
+              </Text>
+            </View>
+            <View style={[styles.statusBadge, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeConnected]}>
+              <Text style={[styles.statusBadgeText, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeTextConnected]}>
+                {DEMO_GOOGLE_SYNC.isConnected ? 'Connected' : 'Connect'}
+              </Text>
+            </View>
           </View>
-          <View style={styles.lifestyleItem}>
-            <Text style={styles.lifestyleEmoji}>👧👦</Text>
-            <Text style={styles.lifestyleText}>2 kids (9 & 11)</Text>
-          </View>
-          <View style={styles.lifestyleItem}>
-            <Text style={styles.lifestyleEmoji}>🐕</Text>
-            <Text style={styles.lifestyleText}>Dog: Max</Text>
-          </View>
-          <View style={styles.lifestyleItem}>
-            <Text style={styles.lifestyleEmoji}>💪</Text>
-            <Text style={styles.lifestyleText}>Gym 3x/week</Text>
-          </View>
-          <View style={styles.lifestyleItem}>
-            <Text style={styles.lifestyleEmoji}>🏢</Text>
-            <Text style={styles.lifestyleText}>Downtown Office</Text>
+          {DEMO_GOOGLE_SYNC.isConnected && (
+            <View style={styles.integrationDetails}>
+              <Text style={styles.integrationDetail}>
+                • Managing calendar: "Jocasta Managed"
+              </Text>
+              <Text style={styles.integrationDetail}>
+                • Importing from: Primary calendar
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.integrationCard}>
+          <View style={styles.integrationHeader}>
+            <Text style={styles.integrationIcon}>📱</Text>
+            <View style={styles.integrationInfo}>
+              <Text style={styles.integrationName}>Telegram Bot</Text>
+              <Text style={styles.integrationStatus}>
+                {DEMO_SETTINGS.telegram.connected
+                  ? `@${DEMO_SETTINGS.telegram.username?.replace('@', '')}`
+                  : 'Not connected'}
+              </Text>
+            </View>
+            <View style={[styles.statusBadge, DEMO_SETTINGS.telegram.connected && styles.statusBadgeConnected]}>
+              <Text style={[styles.statusBadgeText, DEMO_SETTINGS.telegram.connected && styles.statusBadgeTextConnected]}>
+                {DEMO_SETTINGS.telegram.connected ? 'Connected' : 'Connect'}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
 
-      {/* Integrations Section */}
+      {/* Notifications */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Integrations</Text>
+        <Text style={styles.sectionTitle}>NOTIFICATIONS</Text>
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Google Calendar</Text>
-            <Text style={styles.settingDesc}>
-              {currentGoogleStatus?.isConnected
-                ? `Synced ${formatLastSync(currentGoogleStatus.lastSyncAt)}`
-                : 'Not connected'}
-            </Text>
+            <Text style={styles.settingLabel}>Leave-By Reminders</Text>
+            <Text style={styles.settingDesc}>Get notified when to leave for events</Text>
           </View>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: currentGoogleStatus?.isConnected ? '#10b981' : '#6b7280' },
-            ]}
+          <Switch
+            value={leaveByReminders}
+            onValueChange={setLeaveByReminders}
+            trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
           />
         </View>
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Telegram Bot</Text>
-            <Text style={styles.settingDesc}>Quick voice commands</Text>
-          </View>
-          <View style={[styles.statusDot, { backgroundColor: '#6b7280' }]} />
-        </View>
-      </View>
-
-      {/* Smart Buffers Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Smart Buffers</Text>
-        <Text style={styles.sectionSubtitle}>
-          Automatic buffer time between events
-        </Text>
-
-        {currentSettings?.buffers?.map((buffer: any, idx: number) => (
-          <View key={idx} style={styles.bufferRow}>
-            <Text style={styles.bufferType}>{formatEventType(buffer.eventType)}</Text>
-            <Text style={styles.bufferValue}>
-              {buffer.beforeMinutes}min before · {buffer.afterMinutes}min after
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Notifications Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notifications</Text>
-
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Weather Alerts</Text>
-            <Text style={styles.settingDesc}>Get notified about weather impacts</Text>
+            <Text style={styles.settingDesc}>Adjust travel time for weather</Text>
           </View>
           <Switch
             value={weatherAlerts}
             onValueChange={setWeatherAlerts}
             trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
           />
         </View>
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Traffic Alerts</Text>
-            <Text style={styles.settingDesc}>Get notified about traffic delays</Text>
+            <Text style={styles.settingDesc}>Get notified about delays</Text>
           </View>
           <Switch
             value={trafficAlerts}
             onValueChange={setTrafficAlerts}
             trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
+          />
+        </View>
+
+        <TouchableOpacity style={styles.settingRow}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Reminder Times</Text>
+            <Text style={styles.settingDesc}>
+              {DEMO_SETTINGS.notifications.reminderMinutesBefore.map(m =>
+                m >= 60 ? `${m/60}h` : `${m}m`
+              ).join(', ')} before
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Smart Buffers */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>SMART BUFFERS</Text>
+        <Text style={styles.sectionSubtitle}>Automatic buffer time between events</Text>
+
+        {DEMO_BUFFER_RULES.slice(0, 5).map((buffer, idx) => (
+          <TouchableOpacity key={idx} style={styles.bufferRow}>
+            <Text style={styles.bufferIcon}>{getEventTypeIcon(buffer.eventType)}</Text>
+            <View style={styles.bufferInfo}>
+              <Text style={styles.bufferType}>{formatEventType(buffer.eventType)}</Text>
+              <Text style={styles.bufferValue}>
+                +{buffer.beforeMinutes}m before • +{buffer.afterMinutes}m after
+              </Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Constraints */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>SCHEDULE CONSTRAINTS</Text>
+
+        {DEMO_CONSTRAINTS.map((constraint, idx) => (
+          <View key={idx} style={styles.constraintRow}>
+            <Text style={styles.constraintIcon}>{getConstraintIcon(constraint.type)}</Text>
+            <View style={styles.constraintInfo}>
+              <Text style={styles.constraintType}>{formatConstraintType(constraint.type)}</Text>
+              <Text style={styles.constraintValue}>{formatConstraintValue(constraint)}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Privacy */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>PRIVACY</Text>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Google Calendar Sync</Text>
+            <Text style={styles.settingDesc}>Sync events with Google</Text>
+          </View>
+          <Switch
+            value={googleSyncEnabled}
+            onValueChange={setGoogleSyncEnabled}
+            trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
           />
         </View>
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Reminder Times</Text>
-            <Text style={styles.settingDesc}>15 minutes & 1 hour before</Text>
+            <Text style={styles.settingLabel}>Send Notes to AI</Text>
+            <Text style={styles.settingDesc}>Include event notes in AI analysis</Text>
           </View>
-          <Text style={styles.settingChevron}>›</Text>
+          <Switch
+            value={sendNotesToAI}
+            onValueChange={setSendNotesToAI}
+            trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
+          />
+        </View>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Weather Influence</Text>
+            <Text style={styles.settingDesc}>Adjust ETAs based on weather</Text>
+          </View>
+          <Switch
+            value={weatherInfluence}
+            onValueChange={setWeatherInfluence}
+            trackColor={{ false: '#4b5563', true: '#3b82f6' }}
+            thumbColor="#fff"
+          />
         </View>
       </View>
 
-      {/* Account Section */}
+      {/* Account */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account</Text>
-
+        <Text style={styles.sectionTitle}>ACCOUNT</Text>
         <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
           <Text style={styles.dangerButtonText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Jocasta v1.0.0</Text>
-        <Text style={styles.footerText}>Your intelligent scheduling assistant</Text>
+        <Text style={styles.logoText}>J.O.C.A.S.T.A.</Text>
+        <Text style={styles.footerText}>Your Intelligent Schedule Assistant</Text>
+        <Text style={styles.versionText}>Version 1.0.0</Text>
       </View>
     </ScrollView>
   );
+}
+
+// Helper Functions
+function getTransportIcon(mode: TransportMode): string {
+  const icons: Record<TransportMode, string> = {
+    sedan: '🚗',
+    motorcycle: '🏍️',
+    taxi: '🚕',
+    transit: '🚌',
+  };
+  return icons[mode];
+}
+
+function getEventTypeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    appointment: '🏥',
+    client_training: '🎯',
+    personal_workout: '💪',
+    dog_walk: '🐕',
+    kids_dropoff: '🚸',
+    kids_pickup: '🚸',
+    fueling: '⛽',
+    shopping: '🛒',
+    home_chores: '🏠',
+    meeting: '💼',
+  };
+  return icons[type] || '📅';
+}
+
+function formatEventType(type: string): string {
+  const labels: Record<string, string> = {
+    appointment: 'Appointments',
+    client_training: 'Client Training',
+    personal_workout: 'Workouts',
+    dog_walk: 'Dog Walking',
+    kids_dropoff: 'Kids Drop-off',
+    kids_pickup: 'Kids Pick-up',
+    fueling: 'Fueling',
+    shopping: 'Shopping',
+    home_chores: 'Home Chores',
+    meeting: 'Meetings',
+  };
+  return labels[type] || type;
+}
+
+function getConstraintIcon(type: string): string {
+  const icons: Record<string, string> = {
+    sleep: '😴',
+    work: '💼',
+    quiet_hours: '🔕',
+    min_gap: '⏱️',
+    max_travel: '🚗',
+    preferred_mode: '🎯',
+  };
+  return icons[type] || '⚙️';
+}
+
+function formatConstraintType(type: string): string {
+  const labels: Record<string, string> = {
+    sleep: 'Sleep Schedule',
+    work: 'Work Hours',
+    quiet_hours: 'Quiet Hours',
+    min_gap: 'Minimum Gap',
+    max_travel: 'Max Daily Travel',
+    preferred_mode: 'Preferred Transport',
+  };
+  return labels[type] || type;
+}
+
+function formatConstraintValue(constraint: any): string {
+  switch (constraint.type) {
+    case 'sleep':
+      return `${constraint.config.start} - ${constraint.config.end}`;
+    case 'work':
+      return `${constraint.config.start} - ${constraint.config.end} (Mon-Fri)`;
+    case 'quiet_hours':
+      return `${constraint.config.start} - ${constraint.config.end}`;
+    case 'min_gap':
+      return `${constraint.config.minutes} minutes between events`;
+    case 'max_travel':
+      return `${constraint.config.minutesPerDay} min/day`;
+    case 'preferred_mode':
+      return `${constraint.config.mode}, fallback: ${constraint.config.fallback}`;
+    default:
+      return '';
+  }
 }
 
 function formatLastSync(dateStr: string | null): string {
@@ -220,26 +406,39 @@ function formatLastSync(dateStr: string | null): string {
   return date.toLocaleDateString();
 }
 
-function formatEventType(type: string): string {
-  const labels: Record<string, string> = {
-    meeting: '🏢 Meetings',
-    appointment: '🏥 Appointments',
-    personal_workout: '💪 Workouts',
-    kids_activity: '👧 Kids Activities',
-  };
-  return labels[type] || type;
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1a1a2e',
     padding: 16,
   },
-  authText: {
+  authPrompt: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  authTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  authSubtitle: {
+    fontSize: 16,
     color: '#888',
-    textAlign: 'center',
-    marginTop: 100,
+    marginBottom: 32,
+  },
+  signInButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  signInText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     fontSize: 28,
@@ -251,12 +450,11 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#888',
-    textTransform: 'uppercase',
+    letterSpacing: 1,
     marginBottom: 12,
-    letterSpacing: 0.5,
   },
   sectionSubtitle: {
     fontSize: 13,
@@ -298,6 +496,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 2,
   },
+  profileTimezone: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
+  },
   demoBadge: {
     backgroundColor: '#f59e0b20',
     paddingHorizontal: 8,
@@ -311,23 +514,89 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  lifestyleCard: {
+  transportModes: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  transportMode: {
+    flex: 1,
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  transportModeActive: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#3b82f620',
+  },
+  transportIcon: {
+    fontSize: 24,
+    marginBottom: 6,
+  },
+  transportLabel: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  transportLabelActive: {
+    color: '#fff',
+  },
+  integrationCard: {
     backgroundColor: '#2d2d44',
     borderRadius: 12,
     padding: 16,
+    marginBottom: 10,
   },
-  lifestyleItem: {
+  integrationHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  lifestyleEmoji: {
-    fontSize: 20,
-    width: 36,
+  integrationIcon: {
+    fontSize: 24,
+    marginRight: 12,
   },
-  lifestyleText: {
+  integrationInfo: {
+    flex: 1,
+  },
+  integrationName: {
     color: '#fff',
     fontSize: 15,
+    fontWeight: '500',
+  },
+  integrationStatus: {
+    color: '#888',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  integrationDetails: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#3d3d5c',
+  },
+  integrationDetail: {
+    color: '#666',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  statusBadge: {
+    backgroundColor: '#3d3d5c',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  statusBadgeConnected: {
+    backgroundColor: '#10b98120',
+  },
+  statusBadgeText: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statusBadgeTextConnected: {
+    color: '#10b981',
   },
   settingRow: {
     flexDirection: 'row',
@@ -336,7 +605,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   settingInfo: {
     flex: 1,
@@ -350,29 +618,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  settingChevron: {
+  chevron: {
     color: '#666',
-    fontSize: 24,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    fontSize: 22,
+    marginLeft: 8,
   },
   bufferRow: {
+    flexDirection: 'row',
     backgroundColor: '#2d2d44',
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
     marginBottom: 8,
+    alignItems: 'center',
+  },
+  bufferIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  bufferInfo: {
+    flex: 1,
   },
   bufferType: {
     color: '#fff',
-    fontSize: 15,
-    marginBottom: 4,
+    fontSize: 14,
   },
   bufferValue: {
     color: '#888',
-    fontSize: 13,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  constraintRow: {
+    flexDirection: 'row',
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  constraintIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  constraintInfo: {
+    flex: 1,
+  },
+  constraintType: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  constraintValue: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 2,
   },
   dangerButton: {
     backgroundColor: '#ef4444',
@@ -388,10 +685,22 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: 'center',
     paddingVertical: 32,
+    paddingBottom: 100,
+  },
+  logoText: {
+    color: '#3b82f6',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    marginBottom: 4,
   },
   footerText: {
-    color: '#4b5563',
-    fontSize: 12,
+    color: '#666',
+    fontSize: 13,
     marginBottom: 4,
+  },
+  versionText: {
+    color: '#4b5563',
+    fontSize: 11,
   },
 });

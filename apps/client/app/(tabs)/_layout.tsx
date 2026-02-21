@@ -32,6 +32,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="planner"
+        options={{
+          title: 'AI',
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>✨</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="inbox"
         options={{
           title: 'Inbox',

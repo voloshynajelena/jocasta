@@ -1,8 +1,7 @@
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-import { api } from '@/services/api';
+import { api } from '../services/api';
 
 interface User {
   id: string;
@@ -27,93 +26,133 @@ interface AuthState {
   login: (tokens: AuthTokens) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
+  setDemoMode: () => void;
 }
 
+// Lazy load SecureStore only on native
+let SecureStore: typeof import('expo-secure-store') | null = null;
+const getSecureStore = async () => {
+  if (Platform.OS === 'web') return null;
+  if (!SecureStore) {
+    SecureStore = await import('expo-secure-store');
+  }
+  return SecureStore;
+};
+
+const isWebWithStorage = () =>
+  Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage;
+
 const storeToken = async (key: string, value: string) => {
-  if (Platform.OS === 'web') {
-    // On web, we rely on httpOnly cookies set by the server
+  if (isWebWithStorage()) {
+    window.localStorage.setItem(key, value);
     return;
   }
-  await SecureStore.setItemAsync(key, value);
+  if (Platform.OS !== 'web') {
+    const store = await getSecureStore();
+    if (store) {
+      await store.setItemAsync(key, value);
+    }
+  }
 };
 
 const getToken = async (key: string): Promise<string | null> => {
-  if (Platform.OS === 'web') {
-    return null; // Web uses cookies
+  if (isWebWithStorage()) {
+    return window.localStorage.getItem(key);
   }
-  return SecureStore.getItemAsync(key);
+  if (Platform.OS !== 'web') {
+    const store = await getSecureStore();
+    if (store) {
+      return store.getItemAsync(key);
+    }
+  }
+  return null;
 };
 
 const deleteToken = async (key: string) => {
-  if (Platform.OS === 'web') {
+  if (isWebWithStorage()) {
+    window.localStorage.removeItem(key);
     return;
   }
-  await SecureStore.deleteItemAsync(key);
+  if (Platform.OS !== 'web') {
+    const store = await getSecureStore();
+    if (store) {
+      await store.deleteItemAsync(key);
+    }
+  }
 };
 
+// Check demo mode synchronously at module load for web
+const checkDemoMode = (): boolean => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      return window.localStorage.getItem('demoMode') === 'true';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
+const DEMO_USER: User = {
+  id: 'demo-user',
+  email: 'elena@workingmom.io',
+  name: 'Elena Martinez',
+  avatarUrl: null,
+};
+
+const isDemoOnLoad = checkDemoMode();
+
 export const useAuthStore = create<AuthState>((set, get) => ({
-  isAuthenticated: false,
-  isLoading: true,
-  user: null,
+  // If demo mode, start authenticated immediately
+  isAuthenticated: isDemoOnLoad,
+  isLoading: !isDemoOnLoad, // Only loading if NOT demo mode
+  user: isDemoOnLoad ? DEMO_USER : null,
   error: null,
 
   initialize: async () => {
-    try {
-      set({ isLoading: true, error: null });
+    // If already in demo mode, nothing to do
+    if (get().user?.id === 'demo-user') {
+      set({ isLoading: false });
+      return;
+    }
 
+    try {
       // Check for existing tokens
       const accessToken = await getToken('accessToken');
 
-      if (accessToken) {
-        api.setAccessToken(accessToken);
-
-        // Validate by fetching profile
-        try {
-          const profile = await api.getProfile();
-          set({
-            isAuthenticated: true,
-            user: {
-              id: profile.id,
-              email: profile.email,
-              name: profile.name,
-              avatarUrl: profile.avatarUrl,
-            },
-            isLoading: false,
-          });
-          return;
-        } catch {
-          // Token might be expired, try refresh
-          const refreshed = await get().refreshAuth();
-          if (refreshed) {
-            set({ isLoading: false });
-            return;
-          }
-        }
+      if (!accessToken) {
+        set({ isAuthenticated: false, isLoading: false });
+        return;
       }
 
-      // On web, try to fetch profile (cookies might be set)
-      if (Platform.OS === 'web') {
-        try {
-          const profile = await api.getProfile();
-          set({
-            isAuthenticated: true,
-            user: {
-              id: profile.id,
-              email: profile.email,
-              name: profile.name,
-              avatarUrl: profile.avatarUrl,
-            },
-            isLoading: false,
-          });
-          return;
-        } catch {
-          // Not authenticated
-        }
-      }
+      // Have token - try to validate (with timeout)
+      api.setAccessToken(accessToken);
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      try {
+        const profile = await api.getProfile();
+        clearTimeout(timeoutId);
+        set({
+          isAuthenticated: true,
+          user: {
+            id: profile.id,
+            email: profile.email,
+            name: profile.name,
+            avatarUrl: profile.avatarUrl,
+          },
+          isLoading: false,
+        });
+      } catch {
+        clearTimeout(timeoutId);
+        await deleteToken('accessToken');
+        await deleteToken('refreshToken');
+        api.setAccessToken(null);
+        set({ isAuthenticated: false, isLoading: false });
+      }
+    } catch {
       set({ isAuthenticated: false, isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
     }
   },
 
@@ -152,8 +191,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       api.setAccessToken(null);
 
-      // On web, call logout endpoint to clear cookies
+      // On web, clear demo mode and call logout endpoint
       if (Platform.OS === 'web') {
+        localStorage.removeItem('demoMode');
         try {
           await fetch(
             `${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/auth/logout`,
@@ -211,5 +251,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await get().logout();
       return false;
     }
+  },
+
+  setDemoMode: () => {
+    // Persist demo mode flag for web
+    if (Platform.OS === 'web') {
+      localStorage.setItem('demoMode', 'true');
+    }
+    set({
+      isAuthenticated: true,
+      isLoading: false,
+      user: {
+        id: 'demo-user',
+        email: 'elena@workingmom.io',
+        name: 'Elena Martinez',
+        avatarUrl: null,
+      },
+      error: null,
+    });
   },
 }));

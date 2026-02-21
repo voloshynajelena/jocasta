@@ -61,7 +61,7 @@ export class WeatherService {
     if (dbCached) {
       const age = Date.now() - dbCached.updatedAt.getTime();
       if (age < dbCached.ttlSeconds * 1000) {
-        const forecast = dbCached.forecastJson as WeatherForecast;
+        const forecast = dbCached.forecastJson as unknown as WeatherForecast;
         this.memoryCache.set(cacheKey, forecast);
         return forecast;
       }

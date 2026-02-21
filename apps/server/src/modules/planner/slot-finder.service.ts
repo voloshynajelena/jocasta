@@ -163,7 +163,7 @@ export class SlotFinderService {
       let blockedBy = '';
 
       for (const constraint of constraints) {
-        const config = constraint.config as ConstraintConfig;
+        const config = constraint.config as unknown as ConstraintConfig;
 
         if (config.daysOfWeek && !config.daysOfWeek.includes(dayOfWeek)) {
           continue;
@@ -350,7 +350,7 @@ export class SlotFinderService {
     );
 
     for (const constraint of constraints) {
-      const config = constraint.config as ConstraintConfig;
+      const config = constraint.config as unknown as ConstraintConfig;
 
       if (config.daysOfWeek && !config.daysOfWeek.includes(dayOfWeek)) {
         continue;
@@ -382,6 +382,9 @@ export class SlotFinderService {
     after: number;
   } {
     const buffer = DEFAULT_BUFFERS.find((b) => b.eventType === eventType);
-    return buffer || { before: 5, after: 5 };
+    if (buffer) {
+      return { before: buffer.beforeMinutes, after: buffer.afterMinutes };
+    }
+    return { before: 5, after: 5 };
   }
 }

@@ -77,6 +77,61 @@ export class AuthService {
     return this.generateTokens(user.id, user.email);
   }
 
+  async validateGoogleAccessToken(accessToken: string): Promise<AuthTokens> {
+    // Validate the Google access token by fetching user info
+    const response = await fetch(
+      'https://www.googleapis.com/oauth2/v2/userinfo',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      throw new UnauthorizedException('Invalid Google access token');
+    }
+
+    const googleUser = await response.json();
+
+    if (!googleUser.email) {
+      throw new UnauthorizedException('Could not get email from Google');
+    }
+
+    // Find or create user
+    let user = await this.usersService.findByEmail(googleUser.email);
+
+    if (!user) {
+      user = await this.usersService.create({
+        email: googleUser.email,
+        name: googleUser.name || googleUser.email.split('@')[0],
+        avatarUrl: googleUser.picture,
+        timezone: this.configService.get('defaults.timezone'),
+        defaultTransportMode: 'sedan',
+      });
+      this.logger.log(`Created new user from mobile: ${user.email}`);
+    } else {
+      // Update user info if needed
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          avatarUrl: googleUser.picture || user.avatarUrl,
+          name: googleUser.name || user.name,
+        },
+      });
+    }
+
+    // Store the Google access token (no refresh token from this flow)
+    const encryptedAccessToken = this.encrypt(accessToken);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        googleAccessToken: encryptedAccessToken,
+        googleTokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+      },
+    });
+
+    return this.generateTokens(user.id, user.email);
+  }
+
   async validateJwt(payload: JwtPayload): Promise<any> {
     const user = await this.usersService.findById(payload.sub);
     if (!user) {
@@ -112,6 +167,58 @@ export class AuthService {
     // The code should be exchanged for tokens using Google's token endpoint
     // For now, we'll implement this once we have the Google module set up
     throw new Error('Not implemented - requires Google OAuth token exchange');
+  }
+
+  async exchangeGoogleCodeForMobile(code: string): Promise<AuthTokens> {
+    const clientId = this.configService.get('google.clientId');
+    const clientSecret = this.configService.get('google.clientSecret');
+    // MUST use localhost for Google OAuth (they don't allow private IPs)
+    const redirectUri = 'http://localhost:3001/api/v1/auth/google/mobile-callback';
+
+    // Exchange code for Google tokens
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const error = await tokenResponse.text();
+      this.logger.error('Google token exchange failed:', error);
+      throw new UnauthorizedException('Failed to exchange code');
+    }
+
+    const googleTokens = await tokenResponse.json();
+
+    // Get user info from Google
+    const userInfoResponse = await fetch(
+      'https://www.googleapis.com/oauth2/v2/userinfo',
+      {
+        headers: { Authorization: `Bearer ${googleTokens.access_token}` },
+      },
+    );
+
+    if (!userInfoResponse.ok) {
+      throw new UnauthorizedException('Failed to get user info');
+    }
+
+    const googleUser = await userInfoResponse.json();
+
+    // Create or update user
+    return this.validateGoogleUser({
+      id: googleUser.id,
+      email: googleUser.email,
+      name: googleUser.name,
+      picture: googleUser.picture,
+      accessToken: googleTokens.access_token,
+      refreshToken: googleTokens.refresh_token,
+    });
   }
 
   generateTokens(userId: string, email: string): AuthTokens {

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { DEFAULT_BUFFERS } from '@jocasta/shared';
+import { Prisma } from '@prisma/client';
 
 export interface BufferConfig {
   eventType: string;
@@ -41,7 +42,7 @@ export class SettingsService {
     ]);
 
     const buffers = settings?.buffers
-      ? (settings.buffers as BufferConfig[])
+      ? (settings.buffers as unknown as BufferConfig[])
       : DEFAULT_BUFFERS;
 
     const reminderMinutesBefore = settings?.reminderMinutesBefore
@@ -68,7 +69,7 @@ export class SettingsService {
     });
 
     const currentBuffers = existing?.buffers
-      ? (existing.buffers as BufferConfig[])
+      ? (existing.buffers as unknown as BufferConfig[])
       : [...DEFAULT_BUFFERS];
 
     // Merge buffer updates
@@ -96,7 +97,7 @@ export class SettingsService {
     await this.prisma.userSettings.upsert({
       where: { userId },
       update: {
-        buffers: newBuffers,
+        buffers: newBuffers as unknown as Prisma.InputJsonValue,
         ...(updates.reminderMinutesBefore && {
           reminderMinutesBefore: updates.reminderMinutesBefore,
         }),
@@ -109,7 +110,7 @@ export class SettingsService {
       },
       create: {
         userId,
-        buffers: newBuffers,
+        buffers: newBuffers as unknown as Prisma.InputJsonValue,
         reminderMinutesBefore: updates.reminderMinutesBefore || [30, 10],
         weatherAlerts: updates.weatherAlerts ?? true,
         trafficAlerts: updates.trafficAlerts ?? true,

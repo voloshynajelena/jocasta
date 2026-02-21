@@ -1,72 +1,52 @@
 import { useEffect } from 'react';
+import { View, Platform } from 'react-native';
 import { Stack } from 'expo-router';
-import { TamaguiProvider, Theme } from 'tamagui';
-import { useFonts } from 'expo-font';
-import * as SplashScreen from 'expo-splash-screen';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
 
-import config from '../tamagui.config';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore } from '../src/store/authStore';
 
-SplashScreen.preventAutoHideAsync();
+console.log('[Layout Module] Loaded');
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 1000 * 60 * 5,
       retry: 2,
     },
   },
 });
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const initialize = useAuthStore((s) => s.initialize);
-
-  const [fontsLoaded] = useFonts({
-    Inter: require('@tamagui/font-inter/otf/Inter-Medium.otf'),
-    InterBold: require('@tamagui/font-inter/otf/Inter-Bold.otf'),
-  });
-
   useEffect(() => {
-    initialize();
-  }, [initialize]);
-
-  useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded]);
-
-  if (!fontsLoaded) {
-    return null;
-  }
+    console.log('[Layout] Calling initialize...');
+    useAuthStore.getState().initialize();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TamaguiProvider config={config}>
-        <Theme name={colorScheme === 'dark' ? 'dark' : 'light'}>
-          <StatusBar style="auto" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
+      {Platform.OS !== 'web' && <StatusBar style="light" />}
+      <View style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: '#1a1a2e' },
+          }}
+        >
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen
+            name="proposal/[id]"
+            options={{
+              presentation: 'modal',
+              headerShown: true,
+              headerStyle: { backgroundColor: '#1a1a2e' },
+              headerTintColor: '#fff',
+              title: 'Review Proposal',
             }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="proposal/[id]"
-              options={{
-                presentation: 'modal',
-                headerShown: true,
-                title: 'Review Proposal',
-              }}
-            />
-          </Stack>
-        </Theme>
-      </TamaguiProvider>
+          />
+        </Stack>
+      </View>
     </QueryClientProvider>
   );
 }

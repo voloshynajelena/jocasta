@@ -1,7 +1,16 @@
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+// Lazy load SecureStore only on native
+let SecureStore: typeof import('expo-secure-store') | null = null;
+const getSecureStore = async () => {
+  if (Platform.OS === 'web') return null;
+  if (!SecureStore) {
+    SecureStore = await import('expo-secure-store');
+  }
+  return SecureStore;
+};
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -14,13 +23,26 @@ class ApiClient {
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
+    // Also persist to storage
+    if (Platform.OS === 'web') {
+      if (token) {
+        localStorage.setItem('accessToken', token);
+      } else {
+        localStorage.removeItem('accessToken');
+      }
+    }
   }
 
   async getAccessToken(): Promise<string | null> {
     if (this.accessToken) return this.accessToken;
 
-    if (Platform.OS !== 'web') {
-      this.accessToken = await SecureStore.getItemAsync('accessToken');
+    if (Platform.OS === 'web') {
+      this.accessToken = localStorage.getItem('accessToken');
+    } else {
+      const store = await getSecureStore();
+      if (store) {
+        this.accessToken = await store.getItemAsync('accessToken');
+      }
     }
 
     return this.accessToken;
@@ -77,6 +99,17 @@ class ApiClient {
     }>('/auth/mobile/exchange', {
       method: 'POST',
       body: params,
+    });
+  }
+
+  async loginWithGoogleToken(googleAccessToken: string) {
+    return this.request<{
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+    }>('/auth/google/token', {
+      method: 'POST',
+      body: { accessToken: googleAccessToken },
     });
   }
 

@@ -2,9 +2,7 @@ import type {
   Event,
   Task,
   Location,
-  User,
   Constraint,
-  NotificationEndpoint,
   TravelSegment,
   BufferConfig,
 } from './entities';

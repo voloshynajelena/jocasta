@@ -60,6 +60,64 @@ export class AuthController {
     res.json({ authUrl: authUrl.toString(), state });
   }
 
+  @Get('google/mobile-start')
+  @ApiOperation({ summary: 'Start Google OAuth flow (mobile) - redirects to Google' })
+  async googleMobileStart(@Res() res: Response) {
+    const clientId = this.configService.get('google.clientId');
+    // MUST use localhost for Google OAuth (they don't allow private IPs)
+    const redirectUri = 'http://localhost:3001/api/v1/auth/google/mobile-callback';
+    const state = 'mobile:' + this.authService.generateState();
+
+    const scopes = ['openid', 'email', 'profile'].join(' ');
+
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.append('client_id', clientId);
+    authUrl.searchParams.append('redirect_uri', redirectUri);
+    authUrl.searchParams.append('response_type', 'code');
+    authUrl.searchParams.append('scope', scopes);
+    authUrl.searchParams.append('state', state);
+    authUrl.searchParams.append('access_type', 'offline');
+    authUrl.searchParams.append('prompt', 'consent');
+
+    // Store state in cookie
+    res.cookie('oauth_state', state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 600000,
+      sameSite: 'lax',
+    });
+
+    // Redirect to Google
+    res.redirect(authUrl.toString());
+  }
+
+  @Get('google/mobile-callback')
+  @ApiOperation({ summary: 'Google OAuth callback (mobile) - redirects to app' })
+  async googleMobileCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const { code, error } = req.query as { code?: string; error?: string };
+
+    if (error || !code) {
+      // Redirect to app with error
+      res.redirect(`jocasta://auth/error?message=${encodeURIComponent(error || 'No code')}`);
+      return;
+    }
+
+    try {
+      // Exchange code for tokens
+      const tokens = await this.authService.exchangeGoogleCodeForMobile(code as string);
+
+      // Redirect to app with tokens
+      res.redirect(
+        `jocasta://auth/callback?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
+      );
+    } catch (err: any) {
+      res.redirect(`jocasta://auth/error?message=${encodeURIComponent(err.message)}`);
+    }
+  }
+
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Google OAuth callback (web)' })
@@ -114,6 +172,14 @@ export class AuthController {
       body.codeVerifier,
       body.redirectUri,
     );
+  }
+
+  @Post('google/token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login with Google access token (mobile)' })
+  @ApiResponse({ status: 200, description: 'Returns access and refresh tokens' })
+  async googleToken(@Body() body: { accessToken: string }) {
+    return this.authService.validateGoogleAccessToken(body.accessToken);
   }
 
   @Post('refresh')

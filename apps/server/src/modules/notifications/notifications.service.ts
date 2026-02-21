@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { utils } from '@jocasta/shared';
 
@@ -100,7 +101,7 @@ export class NotificationsService {
             userId,
             channel: endpoint.channel,
             endpointId: endpoint.id,
-            payload,
+            payload: payload as unknown as Prisma.InputJsonValue,
             scheduledFor,
             status: 'pending',
             dedupeKey,
@@ -161,7 +162,7 @@ export class NotificationsService {
           userId,
           channel: endpoint.channel,
           endpointId: endpoint.id,
-          payload,
+          payload: payload as unknown as Prisma.InputJsonValue,
           scheduledFor: departAt,
           status: 'pending',
           dedupeKey,
@@ -189,7 +190,7 @@ export class NotificationsService {
           userId,
           channel: endpoint.channel,
           endpointId: endpoint.id,
-          payload,
+          payload: payload as unknown as Prisma.InputJsonValue,
           scheduledFor: new Date(),
           status: 'pending',
           dedupeKey: `immediate:${uuidv4()}`,
@@ -245,7 +246,7 @@ export class NotificationsService {
       },
       update: {
         isEnabled: true,
-        metadata,
+        metadata: metadata as unknown as Prisma.InputJsonValue,
       },
       create: {
         userId,
@@ -253,7 +254,7 @@ export class NotificationsService {
         address,
         isEnabled: true,
         isVerified: false,
-        metadata,
+        metadata: metadata as unknown as Prisma.InputJsonValue,
       },
     });
   }

@@ -552,6 +552,166 @@ export const generateDemoEvents = (): Event[] => {
     notes: 'Fasting required. Bring insurance card.',
   });
 
+  // Week 2 events (7-13 days from now)
+  events.push(
+    {
+      id: 'evt-w2-standup-1',
+      title: 'Weekly Team Standup',
+      type: 'meeting',
+      startAt: getDate(7, 9, 0),
+      endAt: getDate(7, 9, 30),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-office'),
+      isLocked: false,
+      priority: 2,
+      source: 'external_google',
+    },
+    {
+      id: 'evt-w2-training',
+      title: 'Client Training Session',
+      type: 'client_training',
+      startAt: getDate(8, 14, 0),
+      endAt: getDate(8, 16, 0),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-office'),
+      isLocked: true,
+      priority: 3,
+      source: 'managed',
+    },
+    {
+      id: 'evt-w2-dentist',
+      title: 'Teeth Cleaning',
+      type: 'appointment',
+      startAt: getDate(9, 11, 0),
+      endAt: getDate(9, 12, 0),
+      location: { id: 'loc-dentist', name: 'Smile Dental', address: '1500 Centre Street N', lat: 51.06, lng: -114.06 },
+      isLocked: true,
+      priority: 2,
+      source: 'managed',
+    },
+    {
+      id: 'evt-w2-gym',
+      title: 'Personal Training',
+      type: 'personal_workout',
+      startAt: getDate(10, 6, 30),
+      endAt: getDate(10, 7, 30),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-gym'),
+      isLocked: false,
+      priority: 2,
+      source: 'managed',
+    },
+    {
+      id: 'evt-w2-date',
+      title: 'Date Night',
+      type: 'personal',
+      startAt: getDate(11, 19, 0),
+      endAt: getDate(11, 22, 0),
+      location: { id: 'loc-restaurant', name: 'The Nash', address: '925 11 St SE', lat: 51.04, lng: -114.05 },
+      isLocked: true,
+      priority: 3,
+      source: 'managed',
+      notes: 'Reservation confirmed. Babysitter: Sarah',
+    },
+    {
+      id: 'evt-w2-soccer',
+      title: "Kids' Soccer Tournament",
+      type: 'personal',
+      startAt: getDate(12, 10, 0),
+      endAt: getDate(12, 14, 0),
+      location: { id: 'loc-soccer', name: 'Community Fields', address: '3000 26 Ave NE', lat: 51.07, lng: -114.03 },
+      isLocked: true,
+      priority: 3,
+      source: 'managed',
+    }
+  );
+
+  // Week 3 events (14-20 days from now)
+  events.push(
+    {
+      id: 'evt-w3-all-hands',
+      title: 'Company All-Hands',
+      type: 'meeting',
+      startAt: getDate(14, 10, 0),
+      endAt: getDate(14, 11, 30),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-office'),
+      isLocked: false,
+      priority: 2,
+      source: 'external_google',
+    },
+    {
+      id: 'evt-w3-vet',
+      title: 'Max - Vet Checkup',
+      type: 'appointment',
+      startAt: getDate(15, 9, 0),
+      endAt: getDate(15, 10, 0),
+      location: { id: 'loc-vet', name: 'Calgary Animal Hospital', address: '2500 4 Street SW', lat: 51.03, lng: -114.07 },
+      isLocked: true,
+      priority: 2,
+      source: 'managed',
+      notes: 'Annual shots + heartworm test',
+    },
+    {
+      id: 'evt-w3-conference',
+      title: 'Tech Conference',
+      type: 'meeting',
+      startAt: getDate(16, 9, 0),
+      endAt: getDate(16, 17, 0),
+      location: { id: 'loc-telus', name: 'TELUS Convention Centre', address: '120 9 Ave SE', lat: 51.04, lng: -114.06 },
+      isLocked: true,
+      priority: 3,
+      source: 'managed',
+    },
+    {
+      id: 'evt-w3-birthday',
+      title: "Jake's Birthday Party",
+      type: 'personal',
+      startAt: getDate(19, 14, 0),
+      endAt: getDate(19, 17, 0),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-home'),
+      isLocked: true,
+      priority: 3,
+      source: 'managed',
+      notes: '8 kids confirmed. Cake ordered.',
+    }
+  );
+
+  // Week 4 events (21-27 days from now)
+  events.push(
+    {
+      id: 'evt-w4-review',
+      title: 'Quarterly Review',
+      type: 'meeting',
+      startAt: getDate(21, 14, 0),
+      endAt: getDate(21, 15, 30),
+      location: DEMO_LOCATIONS.find(l => l.id === 'loc-office'),
+      isLocked: true,
+      priority: 3,
+      source: 'external_google',
+    },
+    {
+      id: 'evt-w4-car',
+      title: 'Car Service',
+      type: 'appointment',
+      startAt: getDate(22, 8, 0),
+      endAt: getDate(22, 12, 0),
+      location: { id: 'loc-dealer', name: 'Toyota Dealership', address: '5808 Blackfoot Trail SE', lat: 51.0, lng: -114.04 },
+      isLocked: true,
+      priority: 2,
+      source: 'managed',
+      notes: '60k service + tire rotation',
+    },
+    {
+      id: 'evt-w4-spa',
+      title: 'Spa Day',
+      type: 'personal',
+      startAt: getDate(25, 10, 0),
+      endAt: getDate(25, 14, 0),
+      location: { id: 'loc-spa', name: 'Kensington Spa', address: '1134 Kensington Rd NW', lat: 51.05, lng: -114.09 },
+      isLocked: false,
+      priority: 1,
+      source: 'managed',
+      notes: 'Self-care day!',
+    }
+  );
+
   return events;
 };
 

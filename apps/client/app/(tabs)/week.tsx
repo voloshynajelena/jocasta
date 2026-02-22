@@ -15,6 +15,7 @@ export default function WeekScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, 1 = next week, -1 = last week
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -22,11 +23,23 @@ export default function WeekScreen() {
     setRefreshing(false);
   }, []);
 
-  // Generate week days
+  // Get week label based on offset
+  const weekLabel = useMemo(() => {
+    if (weekOffset === 0) return 'This Week';
+    if (weekOffset === 1) return 'Next Week';
+    if (weekOffset === -1) return 'Last Week';
+    if (weekOffset > 1) return `In ${weekOffset} Weeks`;
+    return `${Math.abs(weekOffset)} Weeks Ago`;
+  }, [weekOffset]);
+
+  // Generate week days for the selected week offset
   const weekDays = useMemo(() => {
     const today = new Date();
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay()); // Sunday
+    // Get to Sunday of current week
+    startOfWeek.setDate(today.getDate() - today.getDay());
+    // Apply week offset
+    startOfWeek.setDate(startOfWeek.getDate() + (weekOffset * 7));
     startOfWeek.setHours(0, 0, 0, 0);
 
     const days = [];
@@ -36,7 +49,21 @@ export default function WeekScreen() {
       days.push(date);
     }
     return days;
-  }, []);
+  }, [weekOffset]);
+
+  // Get week date range for header
+  const weekDateRange = useMemo(() => {
+    if (weekDays.length === 0) return '';
+    const start = weekDays[0];
+    const end = weekDays[6];
+    const startMonth = start.toLocaleDateString('en-US', { month: 'short' });
+    const endMonth = end.toLocaleDateString('en-US', { month: 'short' });
+
+    if (startMonth === endMonth) {
+      return `${startMonth} ${start.getDate()} - ${end.getDate()}`;
+    }
+    return `${startMonth} ${start.getDate()} - ${endMonth} ${end.getDate()}`;
+  }, [weekDays]);
 
   // Group events by day
   const eventsByDay = useMemo(() => {
@@ -64,20 +91,40 @@ export default function WeekScreen() {
     return map;
   }, [isDemoMode]);
 
-  // Calculate week stats
+  // Calculate week stats for the displayed week
   const weekStats = useMemo(() => {
     let totalEvents = 0;
     let totalMeetings = 0;
     let totalTravelMinutes = 0;
 
-    eventsByDay.forEach(events => {
-      totalEvents += events.length;
-      totalMeetings += events.filter(e => e.type === 'meeting').length;
-      totalTravelMinutes += events.reduce((acc, e) => acc + (e.travelSegment?.etaMinutes || 0), 0);
+    weekDays.forEach(day => {
+      const dateKey = day.toISOString().split('T')[0];
+      const dayEvents = eventsByDay.get(dateKey) || [];
+      totalEvents += dayEvents.length;
+      totalMeetings += dayEvents.filter(e => e.type === 'meeting').length;
+      totalTravelMinutes += dayEvents.reduce((acc, e) => acc + (e.travelSegment?.etaMinutes || 0), 0);
     });
 
     return { totalEvents, totalMeetings, totalTravelMinutes };
-  }, [eventsByDay]);
+  }, [eventsByDay, weekDays]);
+
+  // Navigate to previous week
+  const goToPrevWeek = () => {
+    setWeekOffset(prev => prev - 1);
+    setSelectedDay(null);
+  };
+
+  // Navigate to next week
+  const goToNextWeek = () => {
+    setWeekOffset(prev => prev + 1);
+    setSelectedDay(null);
+  };
+
+  // Go to current week
+  const goToToday = () => {
+    setWeekOffset(0);
+    setSelectedDay(null);
+  };
 
   if (!isAuthenticated) {
     return (
@@ -101,65 +148,105 @@ export default function WeekScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
+      {/* Header with Navigation */}
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>This Week</Text>
+        <View style={styles.headerRow}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{weekLabel}</Text>
+          {weekOffset !== 0 && (
+            <TouchableOpacity
+              style={[styles.todayButton, { backgroundColor: colors.primary + '20' }]}
+              onPress={goToToday}
+            >
+              <Text style={[styles.todayButtonText, { color: colors.primary }]}>Today</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={[styles.weekRange, { color: colors.textMuted }]}>{weekDateRange}</Text>
+
+        {/* Stats Row */}
         <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{weekStats.totalEvents}</Text>
-            <Text style={styles.statLabel}>Events</Text>
+          <View style={[styles.statItem, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statNumber, { color: colors.text }]}>{weekStats.totalEvents}</Text>
+            <Text style={[styles.statLabel, { color: colors.textMuted }]}>Events</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{weekStats.totalMeetings}</Text>
-            <Text style={styles.statLabel}>Meetings</Text>
+          <View style={[styles.statItem, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statNumber, { color: colors.text }]}>{weekStats.totalMeetings}</Text>
+            <Text style={[styles.statLabel, { color: colors.textMuted }]}>Meetings</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{Math.round(weekStats.totalTravelMinutes / 60)}h</Text>
-            <Text style={styles.statLabel}>Travel</Text>
+          <View style={[styles.statItem, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statNumber, { color: colors.text }]}>{Math.round(weekStats.totalTravelMinutes / 60)}h</Text>
+            <Text style={[styles.statLabel, { color: colors.textMuted }]}>Travel</Text>
           </View>
         </View>
       </View>
 
-      {/* Week Days Header */}
-      <View style={styles.weekHeader}>
-        {weekDays.map((day, index) => {
-          const isToday = day.getTime() === today.getTime();
-          const dateKey = day.toISOString().split('T')[0];
-          const dayEvents = eventsByDay.get(dateKey) || [];
+      {/* Week Navigation + Days Header */}
+      <View style={[styles.weekNavContainer, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity style={styles.navButton} onPress={goToPrevWeek}>
+          <Text style={[styles.navButtonText, { color: colors.primary }]}>‹</Text>
+        </TouchableOpacity>
 
-          return (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.dayHeader,
-                isToday && styles.dayHeaderToday,
-                selectedDay === index && styles.dayHeaderSelected,
-              ]}
-              onPress={() => setSelectedDay(selectedDay === index ? null : index)}
-            >
-              <Text style={[styles.dayName, isToday && styles.dayNameToday]}>
-                {day.toLocaleDateString('en-US', { weekday: 'short' })}
-              </Text>
-              <Text style={[styles.dayNumber, isToday && styles.dayNumberToday]}>
-                {day.getDate()}
-              </Text>
-              {dayEvents.length > 0 && (
-                <View style={styles.eventDots}>
-                  {dayEvents.slice(0, 3).map((_, i) => (
-                    <View key={i} style={styles.eventDot} />
-                  ))}
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
+        <View style={styles.weekHeader}>
+          {weekDays.map((day, index) => {
+            const isToday = day.getTime() === today.getTime();
+            const dateKey = day.toISOString().split('T')[0];
+            const dayEvents = eventsByDay.get(dateKey) || [];
+            const isPastDay = day < today;
+
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.dayHeader,
+                  isToday && [styles.dayHeaderToday, { backgroundColor: colors.primary }],
+                  selectedDay === index && [styles.dayHeaderSelected, { backgroundColor: colors.primaryLight }],
+                ]}
+                onPress={() => setSelectedDay(selectedDay === index ? null : index)}
+              >
+                <Text style={[
+                  styles.dayName,
+                  { color: colors.textMuted },
+                  isToday && styles.dayNameToday,
+                  isPastDay && weekOffset === 0 && { opacity: 0.5 },
+                ]}>
+                  {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                </Text>
+                <Text style={[
+                  styles.dayNumber,
+                  { color: colors.text },
+                  isToday && styles.dayNumberToday,
+                  isPastDay && weekOffset === 0 && { opacity: 0.5 },
+                ]}>
+                  {day.getDate()}
+                </Text>
+                {dayEvents.length > 0 && (
+                  <View style={styles.eventDots}>
+                    {dayEvents.slice(0, 3).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.eventDot,
+                          { backgroundColor: isToday ? '#fff' : colors.textMuted }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TouchableOpacity style={styles.navButton} onPress={goToNextWeek}>
+          <Text style={[styles.navButtonText, { color: colors.primary }]}>›</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Events List */}
       <ScrollView
         style={styles.eventsList}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         showsVerticalScrollIndicator={false}
       >
@@ -177,43 +264,51 @@ export default function WeekScreen() {
           return (
             <View key={dayIndex} style={styles.daySection}>
               <View style={styles.daySectionHeader}>
-                <Text style={[styles.daySectionTitle, isToday && styles.daySectionTitleToday]}>
+                <Text style={[
+                  styles.daySectionTitle,
+                  { color: colors.text },
+                  isToday && { color: colors.primary },
+                ]}>
                   {isToday ? 'Today' : day.toLocaleDateString('en-US', { weekday: 'long' })}
                 </Text>
-                <Text style={styles.daySectionDate}>
+                <Text style={[styles.daySectionDate, { color: colors.textMuted }]}>
                   {day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </Text>
               </View>
 
               {dayEvents.length === 0 ? (
-                <View style={styles.emptyDay}>
-                  <Text style={styles.emptyDayText}>No events</Text>
+                <View style={[styles.emptyDay, { backgroundColor: colors.card }]}>
+                  <Text style={[styles.emptyDayText, { color: colors.textMuted }]}>No events</Text>
                 </View>
               ) : (
                 dayEvents.map(event => (
                   <TouchableOpacity
                     key={event.id}
-                    style={[styles.eventCard, isPast && styles.eventCardPast]}
+                    style={[
+                      styles.eventCard,
+                      { backgroundColor: colors.card },
+                      isPast && styles.eventCardPast,
+                    ]}
                     onPress={() => router.push(`/event/${event.id}`)}
                   >
                     <View style={[styles.eventIndicator, { backgroundColor: getTypeColor(event.type) }]} />
                     <View style={styles.eventTime}>
-                      <Text style={[styles.eventTimeText, isPast && styles.textMuted]}>
+                      <Text style={[styles.eventTimeText, { color: colors.text }, isPast && styles.textMuted]}>
                         {formatTime(event.startAt)}
                       </Text>
                     </View>
                     <View style={styles.eventContent}>
-                      <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                      <Text style={[styles.eventTitle, { color: colors.text }, isPast && styles.textMuted]} numberOfLines={1}>
                         {event.title}
                       </Text>
                       <View style={styles.eventMeta}>
                         {event.location && (
-                          <Text style={styles.eventLocation} numberOfLines={1}>
+                          <Text style={[styles.eventLocation, { color: colors.textMuted }]} numberOfLines={1}>
                             {getTypeIcon(event.type)} {event.location.name}
                           </Text>
                         )}
                         {event.travelSegment && (
-                          <Text style={styles.travelInfo}>
+                          <Text style={[styles.travelInfo, { color: colors.primaryLight }]}>
                             🚗 {event.travelSegment.etaMinutes}m
                           </Text>
                         )}
@@ -221,7 +316,7 @@ export default function WeekScreen() {
                     </View>
                     <View style={styles.eventIcons}>
                       {event.isLocked && <Text style={styles.iconText}>🔒</Text>}
-                      {event.priority === 3 && <Text style={styles.priorityIcon}>!</Text>}
+                      {event.priority === 3 && <Text style={[styles.priorityIcon, { color: colors.error }]}>!</Text>}
                     </View>
                   </TouchableOpacity>
                 ))
@@ -229,6 +324,17 @@ export default function WeekScreen() {
             </View>
           );
         })}
+
+        {/* Empty week state */}
+        {weekStats.totalEvents === 0 && (
+          <View style={styles.emptyWeek}>
+            <Text style={styles.emptyWeekIcon}>📅</Text>
+            <Text style={[styles.emptyWeekTitle, { color: colors.text }]}>No events this week</Text>
+            <Text style={[styles.emptyWeekSubtitle, { color: colors.textMuted }]}>
+              {weekOffset > 0 ? 'Nothing scheduled yet' : 'All clear!'}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.bottomPadding} />
       </ScrollView>
@@ -310,13 +416,32 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 16,
+    paddingBottom: 12,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 16,
+  },
+  weekRange: {
+    fontSize: 14,
+    color: '#888',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  todayButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  todayButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
@@ -341,12 +466,27 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'uppercase',
   },
-  weekHeader: {
+  weekNavContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 8,
+    alignItems: 'center',
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#2d2d44',
+  },
+  navButton: {
+    width: 36,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navButtonText: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: '#3b82f6',
+  },
+  weekHeader: {
+    flex: 1,
+    flexDirection: 'row',
   },
   dayHeader: {
     flex: 1,
@@ -406,9 +546,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  daySectionTitleToday: {
-    color: '#3b82f6',
-  },
   daySectionDate: {
     fontSize: 14,
     color: '#888',
@@ -422,6 +559,26 @@ const styles = StyleSheet.create({
   emptyDayText: {
     color: '#666',
     fontSize: 14,
+  },
+  emptyWeek: {
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 32,
+  },
+  emptyWeekIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyWeekTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  emptyWeekSubtitle: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
   },
   eventCard: {
     flexDirection: 'row',

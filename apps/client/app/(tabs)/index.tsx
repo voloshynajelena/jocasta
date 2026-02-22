@@ -1,17 +1,43 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, RefreshControl, Modal } from 'react-native';
 import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
 import { useThemeStore } from '../../src/store/themeStore';
-import { useSettingsStore, TRANSPORT_MULTIPLIERS } from '../../src/store/settingsStore';
+import { useSettingsStore, TRANSPORT_MULTIPLIERS, TransportMode } from '../../src/store/settingsStore';
 import {
   DEMO_EVENTS,
   DEMO_WEATHER,
   DEMO_DAILY_SUMMARY,
   Event,
+  TravelSegment,
   DEMO_USER,
 } from '../../src/data/demoData';
+
+// Transport mode options with icons
+const TRANSPORT_OPTIONS: { mode: TransportMode; icon: string; label: string }[] = [
+  { mode: 'sedan', icon: '🚗', label: 'Car' },
+  { mode: 'motorcycle', icon: '🏍️', label: 'Moto' },
+  { mode: 'taxi', icon: '🚕', label: 'Taxi' },
+  { mode: 'transit', icon: '🚌', label: 'Bus' },
+];
+
+// Demo bus routes for transit mode
+const DEMO_BUS_ROUTES: Record<string, { number: string; name: string; color: string }[]> = {
+  'evt-kids-drop': [
+    { number: '3', name: 'Sandstone', color: '#ef4444' },
+    { number: '301', name: 'BRT North', color: '#3b82f6' },
+    { number: '72', name: 'McKnight', color: '#22c55e' },
+  ],
+  'evt-standup': [
+    { number: '2', name: 'Killarney', color: '#f59e0b' },
+    { number: 'MAX Orange', name: 'Downtown', color: '#f97316' },
+  ],
+  'evt-kids-pickup': [
+    { number: '3', name: 'Sandstone', color: '#ef4444' },
+    { number: '72', name: 'McKnight', color: '#22c55e' },
+  ],
+};
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -21,26 +47,62 @@ export default function TodayScreen() {
   const isDemoMode = user?.id === 'demo-user';
 
   const { colors } = useThemeStore();
-  const { transportMode } = useSettingsStore();
+  const { transportMode: defaultTransportMode } = useSettingsStore();
 
   const [quickInput, setQuickInput] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Get transport mode icon
-  const getTransportModeIcon = () => {
-    const icons = {
+  // Per-event transport overrides (eventId -> transportMode)
+  const [transportOverrides, setTransportOverrides] = useState<Record<string, TransportMode>>({});
+
+  // Currently selected travel card for travel info modal
+  const [selectedTravelEvent, setSelectedTravelEvent] = useState<Event | null>(null);
+
+  // Show transport picker within travel info modal
+  const [showTransportPicker, setShowTransportPicker] = useState(false);
+
+  // Get transport mode for a specific event (override or default)
+  const getEventTransportMode = (eventId: string): TransportMode => {
+    return transportOverrides[eventId] || defaultTransportMode;
+  };
+
+  // Get transport mode icon for a specific event
+  const getEventTransportIcon = (eventId: string): string => {
+    const mode = getEventTransportMode(eventId);
+    const icons: Record<TransportMode, string> = {
       sedan: '🚗',
       motorcycle: '🏍️',
       taxi: '🚕',
       transit: '🚌',
     };
-    return icons[transportMode];
+    return icons[mode];
   };
 
-  // Calculate adjusted travel time based on transport mode
-  const getAdjustedTravelTime = (baseMinutes: number) => {
-    const multiplier = TRANSPORT_MULTIPLIERS[transportMode];
+  // Calculate adjusted travel time based on transport mode for a specific event
+  const getEventAdjustedTravelTime = (eventId: string, baseMinutes: number): number => {
+    const mode = getEventTransportMode(eventId);
+    const multiplier = TRANSPORT_MULTIPLIERS[mode];
     return Math.round(baseMinutes * multiplier);
+  };
+
+  // Handle transport mode change for an event
+  const handleTransportChange = (eventId: string, mode: TransportMode) => {
+    setTransportOverrides(prev => ({
+      ...prev,
+      [eventId]: mode,
+    }));
+    setShowTransportPicker(false);
+  };
+
+  // Close travel info modal
+  const closeTravelInfo = () => {
+    setSelectedTravelEvent(null);
+    setShowTransportPicker(false);
+  };
+
+  // Check if transport is overridden for an event
+  const isTransportOverridden = (eventId: string): boolean => {
+    return eventId in transportOverrides;
   };
 
   const today = new Date();
@@ -112,13 +174,187 @@ export default function TodayScreen() {
     return now >= start && now <= end;
   });
 
-  // Calculate total travel time
+  // Calculate total travel time (with overrides)
   const totalTravelMinutes = todayEvents.reduce((acc, e) => {
-    return acc + (e.travelSegment?.etaMinutes || 0);
+    if (!e.travelSegment) return acc;
+    return acc + getEventAdjustedTravelTime(e.id, e.travelSegment.etaMinutes);
   }, 0);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Travel Info Modal */}
+      <Modal
+        visible={selectedTravelEvent !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={closeTravelInfo}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={closeTravelInfo}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.travelInfoModal, { backgroundColor: colors.background }]}
+          >
+            {selectedTravelEvent?.travelSegment && (
+              <>
+                {/* Header */}
+                <View style={[styles.travelInfoHeader, { backgroundColor: colors.card }]}>
+                  <View style={styles.travelInfoTitleRow}>
+                    <Text style={styles.travelInfoIcon}>
+                      {getEventTransportIcon(selectedTravelEvent.id)}
+                    </Text>
+                    <Text style={[styles.travelInfoTitle, { color: colors.text }]}>
+                      Travel Info
+                    </Text>
+                    <View style={[styles.confidenceBadge, { backgroundColor: colors.primary + '20' }]}>
+                      <Text style={[styles.confidenceText, { color: colors.primary }]}>
+                        {Math.round(selectedTravelEvent.travelSegment.confidence * 100)}% confidence
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Stats Grid */}
+                  <View style={styles.travelStatsGrid}>
+                    <View style={styles.travelStatItem}>
+                      <Text style={[styles.travelStatLabel, { color: colors.textMuted }]}>DISTANCE</Text>
+                      <Text style={[styles.travelStatValue, { color: colors.text }]}>
+                        {selectedTravelEvent.travelSegment.distanceKm.toFixed(1)} Km
+                      </Text>
+                    </View>
+                    <View style={styles.travelStatItem}>
+                      <Text style={[styles.travelStatLabel, { color: colors.textMuted }]}>ETA</Text>
+                      <Text style={[styles.travelStatValue, { color: colors.text }]}>
+                        {getEventAdjustedTravelTime(selectedTravelEvent.id, selectedTravelEvent.travelSegment.etaMinutes)} Min
+                      </Text>
+                    </View>
+                    <View style={styles.travelStatItem}>
+                      <Text style={[styles.travelStatLabel, { color: colors.textMuted }]}>MODE</Text>
+                      <Text style={[styles.travelStatValue, { color: colors.text }]}>
+                        {getEventTransportMode(selectedTravelEvent.id).charAt(0).toUpperCase() +
+                         getEventTransportMode(selectedTravelEvent.id).slice(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.travelStatItem}>
+                      <Text style={[styles.travelStatLabel, { color: colors.textMuted }]}>SOURCE</Text>
+                      <Text style={[styles.travelStatValue, { color: colors.text }]}>
+                        {selectedTravelEvent.travelSegment.source.charAt(0).toUpperCase() +
+                         selectedTravelEvent.travelSegment.source.slice(1)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Bus Routes (for transit mode) */}
+                {getEventTransportMode(selectedTravelEvent.id) === 'transit' &&
+                 DEMO_BUS_ROUTES[selectedTravelEvent.id] && (
+                  <View style={[styles.routesSection, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.routesSectionTitle, { color: colors.textMuted }]}>
+                      SUGGESTED ROUTES
+                    </Text>
+                    <View style={styles.routesList}>
+                      {DEMO_BUS_ROUTES[selectedTravelEvent.id].map((route, idx) => (
+                        <View key={idx} style={styles.routeItem}>
+                          <View style={[styles.routeBadge, { backgroundColor: route.color }]}>
+                            <Text style={styles.routeNumber}>{route.number}</Text>
+                          </View>
+                          <Text style={[styles.routeName, { color: colors.text }]}>{route.name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Leave By Card */}
+                <View style={[styles.leaveByCard, { backgroundColor: colors.card }]}>
+                  <Text style={[styles.leaveByLabel, { color: colors.textMuted }]}>LEAVE BY</Text>
+                  <Text style={[styles.leaveByTime, { color: colors.warning }]}>
+                    {formatTime(selectedTravelEvent.travelSegment.departAt)}
+                  </Text>
+                  <Text style={[styles.leaveBySubtext, { color: colors.textMuted }]}>
+                    to arrive on time
+                  </Text>
+                </View>
+
+                {/* Change Transport Button */}
+                {!showTransportPicker ? (
+                  <TouchableOpacity
+                    style={[styles.changeTransportBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => setShowTransportPicker(true)}
+                  >
+                    <Text style={styles.changeTransportBtnText}>
+                      Change Transport Mode
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={[styles.transportPickerInline, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.transportPickerInlineTitle, { color: colors.text }]}>
+                      Select Transport
+                    </Text>
+                    <View style={styles.transportOptions}>
+                      {TRANSPORT_OPTIONS.map((option) => {
+                        const isSelected = getEventTransportMode(selectedTravelEvent.id) === option.mode;
+                        const isDefault = option.mode === defaultTransportMode;
+
+                        return (
+                          <TouchableOpacity
+                            key={option.mode}
+                            style={[
+                              styles.transportOption,
+                              { backgroundColor: colors.backgroundSecondary },
+                              isSelected && [styles.transportOptionSelected, { borderColor: colors.primary }],
+                            ]}
+                            onPress={() => handleTransportChange(selectedTravelEvent.id, option.mode)}
+                          >
+                            <Text style={styles.transportOptionIcon}>{option.icon}</Text>
+                            <Text style={[styles.transportOptionLabel, { color: colors.text }]}>
+                              {option.label}
+                            </Text>
+                            {isDefault && (
+                              <View style={[styles.defaultBadge, { backgroundColor: colors.primary + '30' }]}>
+                                <Text style={[styles.defaultBadgeText, { color: colors.primary }]}>Default</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {isTransportOverridden(selectedTravelEvent.id) && (
+                      <TouchableOpacity
+                        style={[styles.resetButton, { borderColor: colors.border }]}
+                        onPress={() => {
+                          setTransportOverrides(prev => {
+                            const newOverrides = { ...prev };
+                            delete newOverrides[selectedTravelEvent.id];
+                            return newOverrides;
+                          });
+                          setShowTransportPicker(false);
+                        }}
+                      >
+                        <Text style={[styles.resetButtonText, { color: colors.textMuted }]}>
+                          Reset to Default
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                {/* Close Button */}
+                <TouchableOpacity
+                  style={[styles.closeModalBtn, { borderColor: colors.border }]}
+                  onPress={closeTravelInfo}
+                >
+                  <Text style={[styles.closeModalBtnText, { color: colors.textMuted }]}>Close</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Header - Prominent Date Display */}
       <View style={[styles.header, { backgroundColor: colors.background }]}>
         <View style={styles.dateHeader}>
@@ -234,6 +470,8 @@ export default function TodayScreen() {
                 const isPast = new Date(event.endAt) < now;
                 const isCurrent = index === currentEventIndex;
                 const showTravel = index > 0 && event.travelSegment;
+                const eventTransportMode = getEventTransportMode(event.id);
+                const hasOverride = isTransportOverridden(event.id);
 
                 return (
                   <View key={event.id}>
@@ -246,24 +484,38 @@ export default function TodayScreen() {
                             <Text style={styles.arrowText}>▼</Text>
                           </View>
                         </View>
-                        <View style={styles.travelCard}>
+                        <TouchableOpacity
+                          style={[
+                            styles.travelCard,
+                            hasOverride && styles.travelCardOverridden,
+                          ]}
+                          onPress={() => setSelectedTravelEvent(event)}
+                          activeOpacity={0.7}
+                        >
                           <View style={styles.travelCardInner}>
-                            <Text style={styles.travelModeIcon}>{getTransportModeIcon()}</Text>
+                            <Text style={styles.travelModeIcon}>{getEventTransportIcon(event.id)}</Text>
                             <View style={styles.travelCardContent}>
                               <Text style={styles.travelLeaveBy}>
                                 Leave by {formatTime(event.travelSegment.departAt)}
                               </Text>
                               <Text style={styles.travelEta}>
-                                {getAdjustedTravelTime(event.travelSegment.etaMinutes)} min {transportMode} • {event.travelSegment.distanceKm.toFixed(1)} km
+                                {getEventAdjustedTravelTime(event.id, event.travelSegment.etaMinutes)} min {eventTransportMode} • {event.travelSegment.distanceKm.toFixed(1)} km
                               </Text>
                             </View>
-                            {event.travelSegment.confidence < 0.9 && (
-                              <View style={styles.travelWarningBadge}>
-                                <Text style={styles.travelWarningText}>~</Text>
-                              </View>
-                            )}
+                            {/* Change transport indicator */}
+                            <View style={[
+                              styles.changeTransportButton,
+                              hasOverride && { backgroundColor: colors.warning + '30' }
+                            ]}>
+                              <Text style={[
+                                styles.changeTransportIcon,
+                                hasOverride && { color: colors.warning }
+                              ]}>
+                                {hasOverride ? '✓' : '⇄'}
+                              </Text>
+                            </View>
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       </View>
                     )}
 
@@ -715,6 +967,10 @@ const styles = StyleSheet.create({
     borderColor: '#2563eb',
     overflow: 'hidden',
   },
+  travelCardOverridden: {
+    borderColor: '#f59e0b',
+    borderWidth: 2,
+  },
   travelCardInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -736,6 +992,18 @@ const styles = StyleSheet.create({
     color: '#93c5fd',
     fontSize: 12,
     marginTop: 2,
+  },
+  changeTransportButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#2563eb40',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changeTransportIcon: {
+    fontSize: 14,
+    color: '#60a5fa',
   },
   travelWarningBadge: {
     backgroundColor: '#f59e0b',
@@ -944,5 +1212,197 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 100,
+  },
+  // Travel Info Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  travelInfoModal: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 40,
+    maxHeight: '85%',
+  },
+  travelInfoHeader: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  travelInfoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  travelInfoIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  travelInfoTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    flex: 1,
+  },
+  confidenceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  confidenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  travelStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  travelStatItem: {
+    width: '50%',
+    marginBottom: 12,
+  },
+  travelStatLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  travelStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  routesSection: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  routesSectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  routesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  routeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  routeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  routeNumber: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  routeName: {
+    fontSize: 14,
+  },
+  leaveByCard: {
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  leaveByLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  leaveByTime: {
+    fontSize: 36,
+    fontWeight: '700',
+  },
+  leaveBySubtext: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  changeTransportBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  changeTransportBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  transportPickerInline: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  transportPickerInlineTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  closeModalBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  closeModalBtnText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  transportOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+  },
+  transportOption: {
+    width: '47%',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  transportOptionSelected: {
+    borderWidth: 2,
+  },
+  transportOptionIcon: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  transportOptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  defaultBadge: {
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  defaultBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  resetButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    alignItems: 'center',
+  },
+  resetButtonText: {
+    fontSize: 14,
   },
 });

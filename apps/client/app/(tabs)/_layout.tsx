@@ -1,20 +1,37 @@
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Text } from 'react-native';
 import { useThemeStore } from '../../src/store/themeStore';
 
-// Monochrome Today Icon with current date
+// Monochrome Today Icon - square with folded corner showing today's date
 function TodayIcon({ color }: { color: string }) {
+  const { colors } = useThemeStore();
+  const today = new Date().getDate();
   return (
-    <View style={styles.iconContainer}>
-      <View style={[styles.calendarIcon, { borderColor: color }]}>
-        <View style={[styles.calendarTop, { backgroundColor: color }]} />
-        <View style={styles.calendarDots}>
-          <View style={[styles.dot, { backgroundColor: color }]} />
-          <View style={[styles.dot, { backgroundColor: color }]} />
-          <View style={[styles.dot, { backgroundColor: color }]} />
-          <View style={[styles.dot, { backgroundColor: color }]} />
-        </View>
+    <View style={styles.todayContainer}>
+      {/* Main square with rounded corners except bottom-right */}
+      <View style={[styles.todaySquare, { borderColor: color }]}>
+        <Text style={[styles.todayDate, { color }]}>{today}</Text>
       </View>
+      {/* Triangle to cut the corner */}
+      <View
+        style={[
+          styles.todayTriangle,
+          {
+            borderTopColor: colors.background,
+            borderRightColor: colors.background,
+          }
+        ]}
+      />
+      {/* Small fold indicator */}
+      <View
+        style={[
+          styles.todayFold,
+          {
+            borderBottomColor: color,
+            borderLeftColor: color,
+          }
+        ]}
+      />
     </View>
   );
 }
@@ -135,29 +152,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Today icon
-  calendarIcon: {
+  // Today icon - square with folded corner
+  todayContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todaySquare: {
     width: 20,
     height: 20,
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderRadius: 3,
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  calendarTop: {
-    height: 5,
-    width: '100%',
+  todayDate: {
+    fontSize: 11,
+    fontWeight: '700',
   },
-  calendarDots: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 2,
-    gap: 2,
+  todayTriangle: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 0,
+    height: 0,
+    borderStyle: 'solid',
+    borderTopWidth: 6,
+    borderRightWidth: 6,
+    borderBottomWidth: 0,
+    borderLeftWidth: 0,
+    borderBottomColor: 'transparent',
+    borderLeftColor: 'transparent',
   },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1,
+  todayFold: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    width: 0,
+    height: 0,
+    borderStyle: 'solid',
+    borderTopWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
   },
   // Week icon
   weekIcon: {

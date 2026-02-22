@@ -143,6 +143,16 @@ export default function TodayScreen() {
         </View>
       </View>
 
+      {/* Weather Alert - Before Quick Add */}
+      {DEMO_WEATHER.alerts.length > 0 && (
+        <View style={[styles.alertBanner, { backgroundColor: colors.card, borderLeftColor: colors.warning }]}>
+          <View style={[styles.alertIconContainer, { backgroundColor: colors.warning + '30' }]}>
+            <Text style={[styles.alertIconText, { color: colors.warning }]}>!</Text>
+          </View>
+          <Text style={[styles.alertText, { color: colors.text }]}>{DEMO_WEATHER.alerts[0].message}</Text>
+        </View>
+      )}
+
       {/* Quick Add */}
       <View style={styles.quickAddContainer}>
         <TextInput
@@ -162,14 +172,6 @@ export default function TodayScreen() {
           <Text style={styles.addButtonText}>+</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Weather Alert */}
-      {DEMO_WEATHER.alerts.length > 0 && (
-        <View style={styles.alertBanner}>
-          <Text style={styles.alertIcon}>!</Text>
-          <Text style={styles.alertText}>{DEMO_WEATHER.alerts[0].message}</Text>
-        </View>
-      )}
 
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
@@ -570,29 +572,26 @@ const styles = StyleSheet.create({
   alertBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#422006',
     marginHorizontal: 16,
     marginBottom: 12,
     padding: 12,
     borderRadius: 10,
     borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
   },
-  alertIcon: {
-    fontSize: 14,
-    color: '#f59e0b',
-    fontWeight: 'bold',
+  alertIconContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 10,
-    backgroundColor: '#f59e0b33',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    textAlign: 'center',
-    lineHeight: 22,
+  },
+  alertIconText: {
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   alertText: {
     flex: 1,
-    color: '#fcd34d',
     fontSize: 13,
     lineHeight: 18,
   },

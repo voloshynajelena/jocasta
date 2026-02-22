@@ -1,0 +1,104 @@
+{
+  "projects": [
+    {
+      "key": "jocasta",
+      "name": "J.O.C.A.S.T.A.",
+      "client": "Internal / Personal",
+      "status": "active",
+      "type": "internal",
+      "oneLiner": "Intelligent AI-powered schedule assistant with travel optimization",
+      "essence": "J.O.C.A.S.T.A. (Just Organized Calendar And Schedule Travel Assistant) is an intelligent scheduling application that combines AI planning, weather awareness, and travel time optimization. It helps users manage their daily schedules with smart buffer times, multi-modal transport calculations, and seamless calendar integration.",
+      "productUrls": [],
+      "owner": "Olena Voloshyna",
+      "techLead": "Olena Voloshyna",
+      "team": [],
+      "tags": ["mobile", "web", "ai", "scheduling", "productivity", "expo"],
+      "stack": {
+        "frontend": { "name": "Expo / React Native", "version": "52", "notes": "Cross-platform mobile and web with expo-router" },
+        "backend": { "name": "Node.js / NestJS", "version": "20", "notes": "Modular architecture with separate modules for auth, events, planner, etc." },
+        "database": { "name": "PostgreSQL", "version": "", "notes": "Primary database" },
+        "hosting": { "name": "TBD", "notes": "" },
+        "auth": { "name": "JWT / Google OAuth", "notes": "Google Calendar integration for auth" },
+        "cicd": { "name": "TBD", "notes": "" },
+        "analytics": { "name": "TBD", "notes": "" },
+        "monitoring": { "name": "TBD", "notes": "" },
+        "stateManagement": { "name": "Zustand", "notes": "Stores for auth, theme, settings" },
+        "apiClient": { "name": "TanStack Query", "notes": "React Query for data fetching" }
+      },
+      "environments": [
+        { "type": "DEV", "url": "http://localhost:8081", "notes": "Expo dev server" }
+      ],
+      "links": [
+        { "type": "REPO", "label": "GitHub", "url": "https://github.com/olenavoloshyna/jocasta", "notes": "Monorepo structure" }
+      ],
+      "instructions": {
+        "localSetupMd": "## Local Setup\n\n### Client (Mobile/Web)\n```bash\ncd apps/client\nnpm install\nnpx expo start\n```\n\n### Server\n```bash\ncd apps/server\nnpm install\nnpm run start:dev\n```",
+        "deployMd": "## Deployment\n\nTBD - Not yet configured for production deployment.",
+        "testingMd": "## Testing\n\nTBD",
+        "runbookMd": "## Runbook\n\n### Common Issues\n- Metro cache issues: `rm -rf node_modules/.cache .expo && npx expo start --clear`\n- Port conflicts: `pkill -f \"expo start\"`",
+        "knownIssuesMd": "## Known Issues\n\n- Demo mode only (no live backend integration yet)\n- Weather data is static demo data"
+      },
+      "operations": {
+        "sla": "",
+        "backups": "",
+        "pii": "medium",
+        "dataRegion": "",
+        "secretsLocation": "",
+        "onCallRotation": "",
+        "incidentProcess": ""
+      },
+      "security": {
+        "authMethod": "JWT with Google OAuth",
+        "dataEncryption": "TLS in transit",
+        "complianceNotes": ""
+      },
+      "documentation": {
+        "envVarsTemplate": "# Client\nEXPO_PUBLIC_API_URL=\n\n# Server\nDATABASE_URL=\nJWT_SECRET=\nGOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\nTELEGRAM_BOT_TOKEN=",
+        "databaseSchema": "## Core Entities\n\n- Users\n- Events (appointments, meetings, workouts, etc.)\n- Locations\n- Tasks\n- Notifications",
+        "apiEndpoints": "## Server Modules\n\n- /auth - Authentication\n- /users - User management\n- /events - Calendar events\n- /tasks - Task management\n- /locations - Location data\n- /planner - AI planning\n- /notifications - Push notifications\n- /integrations/google - Google Calendar sync\n- /integrations/telegram - Telegram bot\n- /integrations/directions - Travel directions\n- /integrations/weather - Weather data",
+        "seedData": "Demo user: demo@jocasta.app",
+        "changelog": "## Development\n\n- Monochrome tab icons with dynamic Today date\n- Theme switching (light/dark)\n- Editable buffer times and constraints\n- Transport mode selection (sedan, motorcycle, taxi, transit)\n- Taxi provider integration (Uber, Checker)\n- Weather alerts with travel impact",
+        "cicdPipeline": "TBD"
+      },
+      "portfolio": {
+        "published": false,
+        "slug": "jocasta",
+        "categories": ["mobile", "productivity", "ai"],
+        "industry": "Productivity / Personal Assistant",
+        "year": 2026,
+        "services": ["Mobile Development", "AI Integration", "UI/UX Design"],
+        "thumbnail": "",
+        "showOnHomepage": false,
+        "challenge": "Managing a busy schedule with multiple appointments, travel between locations, and varying transport modes while accounting for weather conditions and personal constraints.",
+        "solution": "An intelligent assistant that automatically calculates travel times, suggests optimal departure times, manages buffer periods between events, and adapts to user preferences for transport modes and schedule constraints.",
+        "results": []
+      },
+      "features": {
+        "core": [
+          "AI-powered schedule optimization",
+          "Multi-modal travel time calculation (sedan, motorcycle, taxi, transit)",
+          "Weather-aware planning with alerts",
+          "Configurable buffer times per event type",
+          "Schedule constraints (sleep, work hours, quiet hours)",
+          "Google Calendar integration",
+          "Quick event creation with natural language"
+        ],
+        "integrations": [
+          "Google Calendar sync",
+          "Telegram bot notifications",
+          "Uber deep linking",
+          "Checker Cabs phone integration",
+          "Weather API",
+          "Directions API"
+        ],
+        "ui": [
+          "Dark/Light theme switching",
+          "Monochrome tab icons",
+          "Dynamic Today icon with current date",
+          "Event flow timeline visualization",
+          "Travel cards with departure times"
+        ]
+      }
+    }
+  ]
+}

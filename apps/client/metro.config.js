@@ -12,6 +12,10 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// Force CommonJS for zustand (avoid import.meta in ESM builds)
+config.resolver.resolverMainFields = ['react-native', 'browser', 'main'];
+config.resolver.unstable_enablePackageExports = false;
+
 // Transform options
 config.transformer = {
   ...config.transformer,
@@ -22,7 +26,6 @@ config.transformer = {
     },
   }),
   unstable_allowRequireContext: true,
-  // For web: use default JS engine instead of Hermes
   minifierPath: require.resolve('metro-minify-terser'),
 };
 

@@ -5,15 +5,15 @@
   "main": "./index.js",
   "scripts": {
     "dev": "expo start",
-    "ios": "expo start --ios",
+    "ios": "expo start --ios --port 3333",
     "android": "expo start --android",
-    "web": "expo start --web",
+    "web": "expo start --web --port 2222",
     "build:web": "expo export -p web",
+    "serve": "npx serve dist -l 2222",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo/webpack-config": "^19.0.1",
     "@react-navigation/native": "^7.0.0",
     "@tamagui/config": "^1.89.0",
     "@tamagui/core": "^1.89.0",
@@ -44,7 +44,7 @@
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.0",
     "tamagui": "^1.89.0",
-    "zustand": "^4.5.0"
+    "zustand": "^4.3.9"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

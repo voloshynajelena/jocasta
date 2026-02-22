@@ -1,19 +1,44 @@
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // Create admin user
+  const adminPassword = await bcrypt.hash('1Jocasta2', 10);
+  const admin = await prisma.user.upsert({
+    where: { email: 'voloshynajelena@gmail.com' },
+    update: {
+      passwordHash: adminPassword,
+      role: 'admin',
+      name: 'Olena Voloshyna',
+    },
+    create: {
+      email: 'voloshynajelena@gmail.com',
+      passwordHash: adminPassword,
+      role: 'admin',
+      name: 'Olena Voloshyna',
+      timezone: 'America/Edmonton',
+      defaultTransportMode: 'sedan',
+    },
+  });
+  console.log('✅ Created admin user:', admin.email);
+
   // Create a demo user
   const user = await prisma.user.upsert({
     where: { email: 'demo@jocasta.io' },
-    update: {},
+    update: {
+      isDemo: true,
+      name: 'Elena Martinez (Demo)',
+    },
     create: {
       email: 'demo@jocasta.io',
-      name: 'Demo User',
+      name: 'Elena Martinez (Demo)',
       timezone: 'America/Edmonton',
       defaultTransportMode: 'sedan',
+      isDemo: true,
     },
   });
 

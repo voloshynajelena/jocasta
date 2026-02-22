@@ -17,6 +17,10 @@ export interface UserSettings {
     weatherAlerts: boolean;
     trafficAlerts: boolean;
   };
+  googleCalendar: {
+    lockGoogleEvents: boolean;
+    includeGoogleInPlanning: boolean;
+  };
 }
 
 export interface UpdateSettingsDto {
@@ -24,6 +28,8 @@ export interface UpdateSettingsDto {
   reminderMinutesBefore?: number[];
   weatherAlerts?: boolean;
   trafficAlerts?: boolean;
+  lockGoogleEvents?: boolean;
+  includeGoogleInPlanning?: boolean;
 }
 
 @Injectable()
@@ -56,6 +62,10 @@ export class SettingsService {
         reminderMinutesBefore,
         weatherAlerts: settings?.weatherAlerts ?? true,
         trafficAlerts: settings?.trafficAlerts ?? true,
+      },
+      googleCalendar: {
+        lockGoogleEvents: settings?.lockGoogleEvents ?? true,
+        includeGoogleInPlanning: settings?.includeGoogleInPlanning ?? true,
       },
     };
   }
@@ -107,6 +117,12 @@ export class SettingsService {
         ...(updates.trafficAlerts !== undefined && {
           trafficAlerts: updates.trafficAlerts,
         }),
+        ...(updates.lockGoogleEvents !== undefined && {
+          lockGoogleEvents: updates.lockGoogleEvents,
+        }),
+        ...(updates.includeGoogleInPlanning !== undefined && {
+          includeGoogleInPlanning: updates.includeGoogleInPlanning,
+        }),
       },
       create: {
         userId,
@@ -114,8 +130,23 @@ export class SettingsService {
         reminderMinutesBefore: updates.reminderMinutesBefore || [30, 10],
         weatherAlerts: updates.weatherAlerts ?? true,
         trafficAlerts: updates.trafficAlerts ?? true,
+        lockGoogleEvents: updates.lockGoogleEvents ?? true,
+        includeGoogleInPlanning: updates.includeGoogleInPlanning ?? true,
       },
     });
+
+    // If lockGoogleEvents setting changed, update all existing Google events
+    if (updates.lockGoogleEvents !== undefined) {
+      await this.prisma.event.updateMany({
+        where: {
+          userId,
+          source: 'external_google',
+        },
+        data: {
+          isLocked: updates.lockGoogleEvents,
+        },
+      });
+    }
 
     return this.getSettings(userId);
   }

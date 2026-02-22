@@ -1,33 +1,493 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 
 import { useAuthStore } from '../../src/store/authStore';
 import { generateDemoProposals, Proposal, DEMO_WEATHER } from '../../src/data/demoData';
 
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+const getAccessToken = (): string | null => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('accessToken');
+  }
+  return null;
+};
+
+interface CalendarEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  type: string;
+  isLocked?: boolean;
+}
+
+interface ParsedInput {
+  cleanTitle: string;
+  preferredDate?: Date;
+  preferredTimeStart?: number; // hour (0-23)
+  preferredTimeEnd?: number;
+  location?: string;
+}
+
+// Parse natural language input for date, time, and location
+const parseNaturalLanguage = (input: string): ParsedInput => {
+  const now = new Date();
+  let cleanTitle = input;
+  let preferredDate: Date | undefined;
+  let preferredTimeStart: number | undefined;
+  let preferredTimeEnd: number | undefined;
+  let location: string | undefined;
+
+  const lowerInput = input.toLowerCase();
+
+  // Parse day of week
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  for (let i = 0; i < days.length; i++) {
+    if (lowerInput.includes(days[i])) {
+      const today = now.getDay();
+      let daysUntil = i - today;
+      if (daysUntil <= 0) daysUntil += 7; // Next occurrence
+      preferredDate = new Date(now);
+      preferredDate.setDate(preferredDate.getDate() + daysUntil);
+      cleanTitle = cleanTitle.replace(new RegExp(`\\s*(on\\s+)?${days[i]}`, 'gi'), '');
+    }
+  }
+
+  // Parse "today" / "tomorrow"
+  if (lowerInput.includes('today')) {
+    preferredDate = new Date(now);
+    cleanTitle = cleanTitle.replace(/\s*(for\s+)?today/gi, '');
+  } else if (lowerInput.includes('tomorrow')) {
+    preferredDate = new Date(now);
+    preferredDate.setDate(preferredDate.getDate() + 1);
+    cleanTitle = cleanTitle.replace(/\s*(for\s+)?tomorrow/gi, '');
+  }
+
+  // Parse time patterns like "at 3pm", "at 3:00", "at 15:00"
+  const timePattern = /\s*at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/gi;
+  const timeMatch = timePattern.exec(lowerInput);
+  if (timeMatch) {
+    let hour = parseInt(timeMatch[1]);
+    const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    const ampm = timeMatch[3]?.toLowerCase();
+
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+
+    preferredTimeStart = hour;
+    preferredTimeEnd = hour + 2; // Default 2 hour window
+    cleanTitle = cleanTitle.replace(/\s*at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?/gi, '');
+  }
+
+  // Parse time of day
+  if (lowerInput.includes('morning')) {
+    preferredTimeStart = 8;
+    preferredTimeEnd = 12;
+    cleanTitle = cleanTitle.replace(/\s*(in the\s+)?morning/gi, '');
+  } else if (lowerInput.includes('afternoon')) {
+    preferredTimeStart = 12;
+    preferredTimeEnd = 17;
+    cleanTitle = cleanTitle.replace(/\s*(in the\s+)?afternoon/gi, '');
+  } else if (lowerInput.includes('evening')) {
+    preferredTimeStart = 17;
+    preferredTimeEnd = 20;
+    cleanTitle = cleanTitle.replace(/\s*(in the\s+)?evening/gi, '');
+  }
+
+  // Parse location patterns like "at [place]" (after time is extracted)
+  // Look for "at" followed by words that aren't times
+  const locationPattern = /\s+at\s+([A-Za-z][A-Za-z0-9\s']+?)(?:\s+(?:on|today|tomorrow|at\s+\d)|$)/i;
+  const locationMatch = locationPattern.exec(cleanTitle);
+  if (locationMatch) {
+    location = locationMatch[1].trim();
+    cleanTitle = cleanTitle.replace(locationPattern, ' ');
+  }
+
+  // Also check for common location prepositions
+  const locationPattern2 = /\s+(?:in|near|@)\s+([A-Za-z][A-Za-z0-9\s']+?)(?:\s+(?:on|today|tomorrow)|$)/i;
+  const locationMatch2 = locationPattern2.exec(cleanTitle);
+  if (locationMatch2 && !location) {
+    location = locationMatch2[1].trim();
+    cleanTitle = cleanTitle.replace(locationPattern2, ' ');
+  }
+
+  // Clean up the title
+  cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+
+  return {
+    cleanTitle,
+    preferredDate,
+    preferredTimeStart,
+    preferredTimeEnd,
+    location,
+  };
+};
+
+// Calculate available slots based on existing events
+const calculateAvailableSlots = (
+  events: CalendarEvent[],
+  durationMinutes: number = 60,
+  daysToCheck: number = 7,
+  isUrgent: boolean = false,
+  preferences?: ParsedInput
+): Proposal[] => {
+  const now = new Date();
+  const proposals: Proposal[] = [];
+
+  // Work hours: 8 AM to 8 PM (can be overridden by preferences)
+  let workStartHour = preferences?.preferredTimeStart ?? 8;
+  let workEndHour = preferences?.preferredTimeEnd ?? 20;
+
+  // If specific time preference, narrow the window
+  if (preferences?.preferredTimeStart !== undefined) {
+    workStartHour = Math.max(8, preferences.preferredTimeStart);
+    workEndHour = Math.min(20, preferences.preferredTimeEnd ?? preferences.preferredTimeStart + 2);
+  }
+
+  // For urgent mode, only check next 3 hours
+  const urgentEndTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+
+  // Sort events by start time
+  const sortedEvents = [...events].sort(
+    (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+  );
+
+  // Determine which day to check based on preferences
+  let startDayOffset = 0;
+  let endDayOffset = daysToCheck;
+
+  if (preferences?.preferredDate) {
+    // Calculate offset to preferred date
+    const prefDate = new Date(preferences.preferredDate);
+    prefDate.setHours(0, 0, 0, 0);
+    const todayMidnight = new Date(now);
+    todayMidnight.setHours(0, 0, 0, 0);
+    const dayDiff = Math.round((prefDate.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (dayDiff >= 0 && dayDiff < 14) {
+      startDayOffset = dayDiff;
+      endDayOffset = dayDiff + 1; // Only check the preferred day first
+    }
+  }
+
+  // Check preferred day first, then other days
+  const maxDays = isUrgent ? 1 : daysToCheck;
+  const daysToProcess = preferences?.preferredDate
+    ? [startDayOffset, ...Array.from({ length: maxDays }, (_, i) => i).filter(d => d !== startDayOffset)]
+    : Array.from({ length: maxDays }, (_, i) => i);
+
+  for (const dayOffset of daysToProcess) {
+    if (proposals.length >= 6) break;
+    if (dayOffset >= maxDays) continue;
+
+    const checkDate = new Date(now);
+    checkDate.setDate(checkDate.getDate() + dayOffset);
+    checkDate.setHours(workStartHour, 0, 0, 0);
+
+    // For today, start from current time (rounded up to next 30 min)
+    if (dayOffset === 0) {
+      const currentMinutes = now.getMinutes();
+      const roundedMinutes = currentMinutes < 30 ? 30 : 0;
+      const addHours = currentMinutes >= 30 ? 1 : 0;
+      const proposedHour = now.getHours() + addHours;
+      checkDate.setHours(Math.max(proposedHour, workStartHour), roundedMinutes, 0, 0);
+
+      // If past work hours, skip to next day
+      if (checkDate.getHours() >= workEndHour) continue;
+    }
+
+    // Get events for this day
+    const dayStart = new Date(checkDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const dayEvents = sortedEvents.filter(e => {
+      const start = new Date(e.startAt);
+      return start >= dayStart && start < dayEnd;
+    });
+
+    // Find gaps in the schedule
+    let currentTime = new Date(checkDate);
+    let endOfWorkDay = new Date(checkDate);
+    endOfWorkDay.setHours(workEndHour, 0, 0, 0);
+
+    // For urgent mode, limit to 3 hours from now
+    if (isUrgent && urgentEndTime < endOfWorkDay) {
+      endOfWorkDay = urgentEndTime;
+    }
+
+    // Check 30-minute intervals
+    while (currentTime < endOfWorkDay && proposals.length < 6) {
+      const slotEnd = new Date(currentTime.getTime() + durationMinutes * 60 * 1000);
+
+      // Find conflicting events
+      const conflictingEvents = dayEvents.filter(event => {
+        const eventStart = new Date(event.startAt);
+        const eventEnd = new Date(event.endAt);
+        return (currentTime < eventEnd && slotEnd > eventStart);
+      });
+
+      // Check if any conflict is locked (can't be moved)
+      const hasLockedConflict = conflictingEvents.some(e => e.isLocked);
+
+      // For urgent mode, we can move non-locked events
+      const canUseSlot = conflictingEvents.length === 0 || (isUrgent && !hasLockedConflict);
+
+      if (canUseSlot && slotEnd <= endOfWorkDay) {
+        // Calculate travel time (mock: 15-25 min based on time of day)
+        const hour = currentTime.getHours();
+        const travelMinutes = hour >= 7 && hour <= 9 ? 25 : hour >= 16 && hour <= 18 ? 22 : 15;
+
+        const departAt = new Date(currentTime.getTime() - travelMinutes * 60 * 1000);
+
+        // Calculate confidence based on factors
+        let confidence = 0.9;
+        if (dayOffset === 0) confidence += 0.05; // Prefer today
+        if (hour >= 9 && hour <= 16) confidence += 0.03; // Prefer business hours
+        if (travelMinutes > 20) confidence -= 0.05; // Penalize rush hour
+        if (conflictingEvents.length > 0) confidence -= 0.1; // Penalize if moving events
+        confidence = Math.min(0.98, Math.max(0.6, confidence));
+
+        const explanations: string[] = [];
+        if (isUrgent) explanations.push('URGENT: Next 3 hours');
+        if (dayOffset === 0) explanations.push('Available today');
+        else explanations.push(`${dayOffset} day${dayOffset > 1 ? 's' : ''} from now`);
+        explanations.push(`${travelMinutes} min estimated travel`);
+
+        if (conflictingEvents.length === 0) {
+          explanations.push('No conflicts with existing events');
+        } else {
+          explanations.push(`Will reschedule ${conflictingEvents.length} event(s)`);
+        }
+
+        if (hour >= 9 && hour <= 16) explanations.push('Within preferred work hours');
+
+        // Get names of events that would be moved
+        const movedItems = conflictingEvents.map(e => e.title);
+
+        // Determine disruption level based on moved events
+        let disruption: 'none' | 'low' | 'medium' | 'high' = 'none';
+        if (movedItems.length === 1) disruption = 'low';
+        else if (movedItems.length === 2) disruption = 'medium';
+        else if (movedItems.length > 2) disruption = 'high';
+
+        proposals.push({
+          id: `prop-${proposals.length + 1}`,
+          slotStart: currentTime.toISOString(),
+          slotEnd: slotEnd.toISOString(),
+          departAt: departAt.toISOString(),
+          travelMinutes,
+          confidence,
+          explanation: explanations,
+          disruption,
+          movedItems: movedItems.length > 0 ? movedItems : undefined,
+        });
+      }
+
+      // Move to next 30-minute slot
+      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+    }
+  }
+
+  // Sort by confidence (best first)
+  proposals.sort((a, b) => b.confidence - a.confidence);
+
+  return proposals.slice(0, 4); // Return top 4 proposals
+};
+
 export default function ProposalScreen() {
-  const { id, title: taskTitle } = useLocalSearchParams();
+  const { id, title: taskTitle, duration } = useLocalSearchParams();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isDemoMode = user?.id === 'demo-user';
 
   const [loading, setLoading] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(!isDemoMode);
   const [selectedProposal, setSelectedProposal] = useState<string>('prop-1');
   const [transportMode, setTransportMode] = useState<'sedan' | 'transit'>('sedan');
+  const [isUrgent, setIsUrgent] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
-  // Generate demo proposals
-  const proposals = useMemo(() => generateDemoProposals(taskTitle as string || 'New Event'), [taskTitle]);
+  // Parse the input for date, time, and location
+  const parsedInput = useMemo(() => {
+    return parseNaturalLanguage(taskTitle as string || '');
+  }, [taskTitle]);
 
-  const handleConfirm = async () => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      router.replace('/(tabs)');
-    }, 1500);
-  };
+  // Fetch real events from API
+  useEffect(() => {
+    if (isDemoMode) {
+      setLoadingSlots(false);
+      return;
+    }
+
+    const fetchEvents = async () => {
+      const token = getAccessToken();
+      if (!token) {
+        setLoadingSlots(false);
+        return;
+      }
+
+      try {
+        // Fetch events for the next 7 days
+        const startDate = new Date().toISOString();
+        const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const url = `${API_URL}/api/v1/events?startDate=${startDate}&endDate=${endDate}&limit=100`;
+
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // API returns { events: [...], total, page, limit }
+          setCalendarEvents(data.events || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch events:', err);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+
+    fetchEvents();
+  }, [isDemoMode]);
+
+  // Generate proposals based on real calendar data or demo data
+  const proposals = useMemo(() => {
+    if (isDemoMode) {
+      return generateDemoProposals(taskTitle as string || 'New Event');
+    }
+
+    const durationMinutes = parseInt(duration as string) || 60;
+    const slots = calculateAvailableSlots(calendarEvents, durationMinutes, 7, isUrgent, parsedInput);
+
+    // If no slots found, return a message proposal
+    if (slots.length === 0) {
+      let noSlotsMessage = isUrgent
+        ? 'No slots available in the next 3 hours (all events are locked)'
+        : 'No available slots found in the next 7 days';
+
+      if (parsedInput.preferredDate) {
+        const dayName = parsedInput.preferredDate.toLocaleDateString('en-US', { weekday: 'long' });
+        noSlotsMessage = `No available slots on ${dayName}. Try a different day.`;
+      }
+
+      return [{
+        id: 'prop-none',
+        slotStart: new Date().toISOString(),
+        slotEnd: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        departAt: new Date().toISOString(),
+        travelMinutes: 0,
+        confidence: 0,
+        explanation: [noSlotsMessage],
+        disruption: 'none' as const,
+      }];
+    }
+
+    return slots;
+  }, [isDemoMode, taskTitle, calendarEvents, duration, isUrgent, parsedInput]);
+
+  // Update selected proposal when proposals change
+  useEffect(() => {
+    if (proposals.length > 0 && !proposals.find(p => p.id === selectedProposal)) {
+      setSelectedProposal(proposals[0].id);
+    }
+  }, [proposals]);
 
   const selected = proposals.find(p => p.id === selectedProposal) || proposals[0];
+
+  const handleConfirm = async () => {
+    if (isDemoMode) {
+      // Demo mode - just simulate
+      setLoading(true);
+      setTimeout(() => {
+        setLoading(false);
+        router.replace('/(tabs)');
+      }, 1500);
+      return;
+    }
+
+    // Prevent double-clicks
+    if (loading) return;
+
+    const token = getAccessToken();
+    if (!token) {
+      Alert.alert('Error', 'Please sign in to create events');
+      return;
+    }
+
+    // Check if we have a valid slot
+    if (selected.id === 'prop-none' || selected.confidence === 0) {
+      Alert.alert('No Available Slots', 'Please choose a custom time or try again later.');
+      return;
+    }
+
+    // If urgent mode with conflicts, confirm with user
+    if (isUrgent && selected.movedItems && selected.movedItems.length > 0) {
+      Alert.alert(
+        'Confirm Urgent Scheduling',
+        `This will create a conflict with:\n\n${selected.movedItems.map(item => `• ${item}`).join('\n')}\n\nYou'll need to reschedule these events manually.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Schedule Anyway', style: 'destructive', onPress: () => createEvent() }
+        ]
+      );
+      return;
+    }
+
+    createEvent();
+  };
+
+  const createEvent = async () => {
+    // Prevent double submission
+    if (loading) return;
+
+    const token = getAccessToken();
+    if (!token) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/events`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: parsedInput.cleanTitle || taskTitle || 'New Event',
+          startAt: selected.slotStart,
+          endAt: selected.slotEnd,
+          type: isUrgent ? 'urgent' : 'other',
+          source: 'managed',
+          priority: isUrgent ? 10 : 5,
+          notes: parsedInput.location ? `Location: ${parsedInput.location}` : undefined,
+        }),
+      });
+
+      if (response.ok) {
+        // Navigate immediately - don't wait for user to dismiss alert
+        router.replace('/(tabs)');
+        // Show brief success message
+        Alert.alert('Scheduled!', isUrgent ? 'Urgent event created' : 'Event added to your calendar');
+      } else {
+        const error = await response.json();
+        Alert.alert('Error', error.message || 'Failed to create event');
+        setLoading(false);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to create event');
+      setLoading(false);
+    }
+    // Don't reset loading on success - we're navigating away
+  };
 
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 0.9) return '#10b981';
@@ -75,11 +535,49 @@ export default function ProposalScreen() {
       {/* Task Info */}
       <View style={styles.taskInfo}>
         <Text style={styles.taskLabel}>Scheduling</Text>
-        <Text style={styles.taskTitle}>{taskTitle || 'New Event'}</Text>
+        <Text style={styles.taskTitle}>{parsedInput.cleanTitle || taskTitle || 'New Event'}</Text>
       </View>
 
+      {/* Detected Preferences */}
+      {!isDemoMode && (parsedInput.preferredDate || parsedInput.preferredTimeStart !== undefined || parsedInput.location) && (
+        <View style={styles.detectedSection}>
+          <Text style={styles.detectedTitle}>Detected from your input:</Text>
+          <View style={styles.detectedTags}>
+            {parsedInput.preferredDate && (
+              <View style={styles.detectedTag}>
+                <Text style={styles.detectedTagIcon}>📅</Text>
+                <Text style={styles.detectedTagText}>
+                  {parsedInput.preferredDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+              </View>
+            )}
+            {parsedInput.preferredTimeStart !== undefined && (
+              <View style={styles.detectedTag}>
+                <Text style={styles.detectedTagIcon}>🕐</Text>
+                <Text style={styles.detectedTagText}>
+                  {parsedInput.preferredTimeStart > 12
+                    ? `${parsedInput.preferredTimeStart - 12} PM`
+                    : parsedInput.preferredTimeStart === 12
+                      ? '12 PM'
+                      : `${parsedInput.preferredTimeStart} AM`}
+                  {parsedInput.preferredTimeEnd && parsedInput.preferredTimeEnd !== parsedInput.preferredTimeStart + 2
+                    ? ` - ${parsedInput.preferredTimeEnd > 12 ? `${parsedInput.preferredTimeEnd - 12} PM` : `${parsedInput.preferredTimeEnd} AM`}`
+                    : ''}
+                </Text>
+              </View>
+            )}
+            {parsedInput.location && (
+              <View style={styles.detectedTag}>
+                <Text style={styles.detectedTagIcon}>📍</Text>
+                <Text style={styles.detectedTagText}>{parsedInput.location}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* Weather Alert */}
-      {DEMO_WEATHER.alerts.length > 0 && (
+      {isDemoMode && DEMO_WEATHER.alerts.length > 0 && (
         <View style={styles.weatherAlert}>
           <Text style={styles.weatherIcon}>
             {DEMO_WEATHER.alerts[0].type === 'snow' ? '❄️' : '🌧️'}
@@ -91,6 +589,16 @@ export default function ProposalScreen() {
         </View>
       )}
 
+      {/* Loading slots */}
+      {loadingSlots && (
+        <View style={styles.loadingSlots}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Finding available slots...</Text>
+        </View>
+      )}
+
+      {!loadingSlots && (
+        <>
       {/* Transport Mode Toggle */}
       <View style={styles.transportSection}>
         <Text style={styles.sectionLabel}>Transport Mode</Text>
@@ -115,6 +623,29 @@ export default function ProposalScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Urgency Toggle */}
+      {!isDemoMode && (
+        <View style={styles.urgencySection}>
+          <TouchableOpacity
+            style={[styles.urgencyToggle, isUrgent && styles.urgencyToggleActive]}
+            onPress={() => setIsUrgent(!isUrgent)}
+          >
+            <Text style={styles.urgencyIcon}>⚡</Text>
+            <View style={styles.urgencyContent}>
+              <Text style={[styles.urgencyTitle, isUrgent && styles.urgencyTitleActive]}>
+                Urgent - Next 3 Hours
+              </Text>
+              <Text style={[styles.urgencySubtext, isUrgent && styles.urgencySubtextActive]}>
+                {isUrgent ? 'Will suggest moving non-locked events' : 'Tap to enable urgent scheduling'}
+              </Text>
+            </View>
+            <View style={[styles.urgencyCheckbox, isUrgent && styles.urgencyCheckboxActive]}>
+              {isUrgent && <Text style={styles.urgencyCheck}>✓</Text>}
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Proposal Cards */}
       <View style={styles.proposalsSection}>
@@ -245,6 +776,8 @@ export default function ProposalScreen() {
       </View>
 
       <View style={styles.bottomPadding} />
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -294,6 +827,42 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  detectedSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#1e3a5f',
+    borderRadius: 12,
+    padding: 14,
+  },
+  detectedTitle: {
+    color: '#60a5fa',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  detectedTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detectedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d4a6f',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+  },
+  detectedTagIcon: {
+    fontSize: 14,
+  },
+  detectedTagText: {
+    color: '#93c5fd',
+    fontSize: 14,
+    fontWeight: '500',
   },
   weatherAlert: {
     flexDirection: 'row',
@@ -360,6 +929,64 @@ const styles = StyleSheet.create({
   },
   transportTextActive: {
     color: '#fff',
+  },
+  urgencySection: {
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  urgencyToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  urgencyToggleActive: {
+    backgroundColor: '#7f1d1d',
+    borderColor: '#ef4444',
+  },
+  urgencyIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  urgencyContent: {
+    flex: 1,
+  },
+  urgencyTitle: {
+    color: '#888',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  urgencyTitleActive: {
+    color: '#fff',
+  },
+  urgencySubtext: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  urgencySubtextActive: {
+    color: '#fca5a5',
+  },
+  urgencyCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#666',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  urgencyCheckboxActive: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+  },
+  urgencyCheck: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   proposalsSection: {
     paddingHorizontal: 16,
@@ -581,5 +1208,15 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 40,
+  },
+  loadingSlots: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+  loadingText: {
+    color: '#888',
+    fontSize: 16,
+    marginTop: 16,
   },
 });

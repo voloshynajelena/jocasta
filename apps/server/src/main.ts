@@ -27,12 +27,10 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') || [
-      'http://localhost:8081',
-      'http://localhost:19006',
-      'http://localhost:3000',
-    ],
+    origin: true, // Allow all origins in development
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Global prefix

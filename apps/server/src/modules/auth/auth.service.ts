@@ -1,13 +1,15 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../../database/prisma.service';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 export interface JwtPayload {
   sub: string;
   email: string;
+  role?: string;
   iat?: number;
   exp?: number;
 }
@@ -273,5 +275,119 @@ export class AuthService {
 
   generateCodeChallenge(verifier: string): string {
     return crypto.createHash('sha256').update(verifier).digest('base64url');
+  }
+
+  // Email/Password Authentication
+  async loginWithPassword(email: string, password: string): Promise<AuthTokens> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    this.logger.log(`User logged in with password: ${user.email}`);
+    return this.generateTokensWithRole(user.id, user.email, user.role);
+  }
+
+  async registerWithPassword(
+    email: string,
+    password: string,
+    name?: string,
+  ): Promise<AuthTokens> {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException('Email already registered');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        passwordHash,
+        name: name || email.split('@')[0],
+        role: 'user',
+        timezone: this.configService.get('defaults.timezone') || 'America/Edmonton',
+        defaultTransportMode: 'sedan',
+      },
+    });
+
+    this.logger.log(`New user registered: ${user.email}`);
+    return this.generateTokensWithRole(user.id, user.email, user.role);
+  }
+
+  // Apple Sign-In
+  async validateAppleUser(
+    appleId: string,
+    email: string,
+    name?: string,
+  ): Promise<AuthTokens> {
+    // First, try to find user by Apple ID
+    let user = await this.prisma.user.findUnique({
+      where: { appleId },
+    });
+
+    if (!user && email) {
+      // Try to find by email
+      user = await this.prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+      });
+
+      if (user) {
+        // Link Apple ID to existing user
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { appleId },
+        });
+        this.logger.log(`Linked Apple ID to existing user: ${user.email}`);
+      }
+    }
+
+    if (!user) {
+      // Create new user
+      user = await this.prisma.user.create({
+        data: {
+          email: email?.toLowerCase() || `apple_${appleId}@jocasta.app`,
+          appleId,
+          name: name || 'Apple User',
+          role: 'user',
+          timezone: this.configService.get('defaults.timezone') || 'America/Edmonton',
+          defaultTransportMode: 'sedan',
+        },
+      });
+      this.logger.log(`Created new user from Apple Sign-In: ${user.email}`);
+    }
+
+    return this.generateTokensWithRole(user.id, user.email, user.role);
+  }
+
+  generateTokensWithRole(userId: string, email: string, role: string): AuthTokens {
+    const payload: JwtPayload = { sub: userId, email, role };
+
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.configService.get('jwt.secret'),
+      expiresIn: this.configService.get('jwt.accessExpiresIn'),
+    });
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.configService.get('jwt.refreshSecret'),
+      expiresIn: this.configService.get('jwt.refreshExpiresIn'),
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 900, // 15 minutes in seconds
+    };
   }
 }

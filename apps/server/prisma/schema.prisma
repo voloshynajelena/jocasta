@@ -22,6 +22,12 @@ model User {
   timezone             String   @default("America/Edmonton")
   defaultTransportMode String   @default("sedan") @map("default_transport_mode")
 
+  // Authentication
+  passwordHash         String?  @map("password_hash")
+  role                 String   @default("user") // user, admin
+  appleId              String?  @unique @map("apple_id")
+  isDemo               Boolean  @default(false) @map("is_demo")
+
   // Google OAuth tokens (encrypted)
   googleRefreshToken   String?   @map("google_refresh_token")
   googleAccessToken    String?   @map("google_access_token")
@@ -91,6 +97,7 @@ model Event {
   source             String   @default("managed")
   externalProviderId String?  @map("external_provider_id")
   externalEtag       String?  @map("external_etag")
+  externalData       Json?    @map("external_data") // Original Google event data
   lastModifiedAt     DateTime @default(now()) @map("last_modified_at")
   recurrenceRuleId   String?  @map("recurrence_rule_id")
   parentEventId      String?  @map("parent_event_id")
@@ -349,6 +356,10 @@ model UserSettings {
   reminderMinutesBefore  Json   @default("[30, 10]") @map("reminder_minutes_before")
   weatherAlerts          Boolean @default(true) @map("weather_alerts")
   trafficAlerts          Boolean @default(true) @map("traffic_alerts")
+
+  // Google Calendar integration settings
+  lockGoogleEvents         Boolean @default(true) @map("lock_google_events")
+  includeGoogleInPlanning  Boolean @default(true) @map("include_google_in_planning")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

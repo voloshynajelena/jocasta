@@ -1,17 +1,47 @@
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Linking, TextInput, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
+
+// Apple Authentication - only available on iOS native
+let AppleAuthentication: typeof import('expo-apple-authentication') | null = null;
+if (Platform.OS === 'ios') {
+  try {
+    AppleAuthentication = require('expo-apple-authentication');
+  } catch {
+    // Not available
+  }
+}
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { colors } = useThemeStore();
   const login = useAuthStore((s) => s.login);
+  const loginWithPassword = useAuthStore((s) => s.loginWithPassword);
+  const loginWithApple = useAuthStore((s) => s.loginWithApple);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Email/password form state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showEmailForm, setShowEmailForm] = useState(false);
+
+  // Apple auth availability
+  const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+
+  useEffect(() => {
+    // Check if Apple Authentication is available
+    if (Platform.OS === 'ios' && AppleAuthentication) {
+      AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
+    }
+  }, []);
 
   // Handle deep link callback from OAuth
   useEffect(() => {
@@ -52,13 +82,18 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      // Open the server's Google OAuth flow in browser
-      // The server will redirect back to jocasta:// scheme with tokens
       const authUrl = `${API_URL}/api/v1/auth/google/mobile-start`;
+
+      // On web, just redirect to the auth URL
+      if (Platform.OS === 'web') {
+        window.location.href = authUrl;
+        return;
+      }
+
+      // On mobile, use WebBrowser
       const result = await WebBrowser.openAuthSessionAsync(authUrl, 'jocasta://');
 
       if (result.type === 'success' && result.url) {
-        // Parse tokens from the callback URL
         const urlObj = new URL(result.url);
         const accessToken = urlObj.searchParams.get('access_token');
         const refreshToken = urlObj.searchParams.get('refresh_token');
@@ -69,8 +104,6 @@ export default function LoginScreen() {
         } else {
           setError('No tokens received');
         }
-      } else if (result.type === 'cancel') {
-        // User cancelled
       }
     } catch (err: any) {
       console.error('Login error:', err);
@@ -80,95 +113,232 @@ export default function LoginScreen() {
     }
   };
 
+  const handleEmailLogin = async () => {
+    if (!email || !password) {
+      setError('Please enter email and password');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      await loginWithPassword(email, password);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    if (!AppleAuthentication) return;
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      const fullName = credential.fullName
+        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+        : undefined;
+
+      await loginWithApple(credential.user, credential.email || undefined, fullName);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      if (err.code === 'ERR_CANCELED') {
+        // User cancelled
+      } else {
+        console.error('Apple login error:', err);
+        setError(err.message || 'Apple Sign-In failed');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>Jocasta</Text>
-        <Text style={styles.tagline}>Your intelligent scheduling assistant</Text>
-      </View>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <Text style={[styles.logo, { color: colors.primary }]}>J.</Text>
+          <Text style={[styles.logoFull, { color: colors.text }]}>J.O.C.A.S.T.A.</Text>
+          <Text style={[styles.tagline, { color: colors.textMuted }]}>
+            Your intelligent scheduling assistant
+          </Text>
+        </View>
 
-      <View style={styles.content}>
-        <Text style={styles.title}>Welcome</Text>
-        <Text style={styles.subtitle}>Sign in to manage your schedule</Text>
+        <View style={styles.content}>
+          <Text style={[styles.title, { color: colors.text }]}>Welcome</Text>
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+            Sign in to manage your schedule
+          </Text>
 
-        {error && (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
+          {error && (
+            <View style={[styles.errorBox, { backgroundColor: colors.error }]}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
 
-        <TouchableOpacity
-          style={styles.googleButton}
-          onPress={handleGoogleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
+          {/* Email/Password Form */}
+          {showEmailForm ? (
+            <View style={styles.emailForm}>
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
+                placeholder="Email"
+                placeholderTextColor={colors.textMuted}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
+                placeholder="Password"
+                placeholderTextColor={colors.textMuted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoComplete="password"
+              />
+              <TouchableOpacity
+                style={[styles.emailLoginButton, { backgroundColor: colors.primary }]}
+                onPress={handleEmailLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.emailLoginText}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => setShowEmailForm(false)}
+              >
+                <Text style={[styles.backButtonText, { color: colors.textMuted }]}>
+                  Back to other options
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <>
-              <Text style={styles.googleIcon}>G</Text>
-              <Text style={styles.googleText}>Continue with Google</Text>
+              {/* Google Sign-In */}
+              <TouchableOpacity
+                style={styles.googleButton}
+                onPress={handleGoogleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.googleIcon}>G</Text>
+                    <Text style={styles.googleText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Apple Sign-In (iOS only) */}
+              {(Platform.OS === 'ios' && appleAuthAvailable && AppleAuthentication) && (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                  cornerRadius={12}
+                  style={styles.appleButton}
+                  onPress={handleAppleLogin}
+                />
+              )}
+
+              {/* Email Sign-In Option */}
+              <TouchableOpacity
+                style={[styles.emailButton, { backgroundColor: colors.card }]}
+                onPress={() => setShowEmailForm(true)}
+              >
+                <Text style={styles.emailIcon}>@</Text>
+                <Text style={[styles.emailButtonText, { color: colors.text }]}>
+                  Sign in with Email
+                </Text>
+              </TouchableOpacity>
             </>
           )}
-        </TouchableOpacity>
 
-        <Text style={styles.terms}>
-          By signing in, you agree to our Terms of Service and Privacy Policy
-        </Text>
+          <Text style={[styles.terms, { color: colors.textMuted }]}>
+            By signing in, you agree to our Terms of Service and Privacy Policy
+          </Text>
 
-        <TouchableOpacity
-          style={styles.demoButton}
-          onPress={() => {
-            useAuthStore.getState().setDemoMode();
-            router.replace('/(tabs)');
-          }}
-        >
-          <Text style={styles.demoButtonText}>Try Demo (Elena's Schedule)</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+          <TouchableOpacity
+            style={[styles.demoButton, { backgroundColor: colors.card }]}
+            onPress={() => {
+              useAuthStore.getState().setDemoMode();
+              router.replace('/(tabs)');
+            }}
+          >
+            <Text style={[styles.demoButtonText, { color: colors.text }]}>
+              Try Demo (Elena's Schedule)
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 60,
+    minHeight: 200,
   },
   logo: {
-    fontSize: 48,
+    fontSize: 72,
     fontWeight: 'bold',
-    color: '#fff',
+  },
+  logoFull: {
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: 2,
+    marginTop: 8,
   },
   tagline: {
     fontSize: 16,
-    color: '#888',
     marginTop: 8,
   },
   content: {
     flex: 2,
     paddingHorizontal: 32,
     paddingTop: 40,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#fff',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#888',
     marginBottom: 32,
   },
   errorBox: {
-    backgroundColor: '#ef4444',
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
@@ -184,7 +354,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4285f4',
     paddingVertical: 16,
     borderRadius: 12,
-    marginBottom: 24,
+    marginBottom: 12,
   },
   googleIcon: {
     color: '#fff',
@@ -197,8 +367,59 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  appleButton: {
+    height: 52,
+    width: '100%',
+    marginBottom: 12,
+  },
+  emailButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  emailIcon: {
+    color: '#888',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginRight: 12,
+  },
+  emailButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emailForm: {
+    marginBottom: 24,
+  },
+  input: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  emailLoginButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  emailLoginText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  backButton: {
+    alignItems: 'center',
+    padding: 12,
+  },
+  backButtonText: {
+    fontSize: 14,
+  },
   terms: {
-    color: '#666',
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
@@ -206,12 +427,10 @@ const styles = StyleSheet.create({
   demoButton: {
     marginTop: 24,
     padding: 16,
-    backgroundColor: '#2d2d44',
     borderRadius: 12,
     alignItems: 'center',
   },
   demoButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '500',
   },

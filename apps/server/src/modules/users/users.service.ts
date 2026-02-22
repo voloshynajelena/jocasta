@@ -88,6 +88,7 @@ export class UsersService {
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      role: user.role,
       timezone: user.timezone,
       defaultTransportMode: user.defaultTransportMode,
       hasGoogleCalendar: !!user.googleRefreshToken,
@@ -105,5 +106,82 @@ export class UsersService {
       select: { googleRefreshToken: true },
     });
     return !!user?.googleRefreshToken;
+  }
+
+  // Admin methods
+  async findAll() {
+    const users = await this.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatarUrl: true,
+        role: true,
+        isDemo: true,
+        timezone: true,
+        defaultTransportMode: true,
+        createdAt: true,
+        updatedAt: true,
+        googleRefreshToken: true,
+        appleId: true,
+        _count: {
+          select: {
+            events: true,
+            tasks: true,
+          },
+        },
+      },
+    });
+
+    return users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      role: user.role,
+      isDemo: user.isDemo,
+      timezone: user.timezone,
+      defaultTransportMode: user.defaultTransportMode,
+      hasGoogleCalendar: !!user.googleRefreshToken,
+      hasAppleId: !!user.appleId,
+      eventsCount: user._count.events,
+      tasksCount: user._count.tasks,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    }));
+  }
+
+  async adminUpdate(
+    id: string,
+    data: {
+      name?: string;
+      email?: string;
+      role?: string;
+      isDemo?: boolean;
+      timezone?: string;
+      defaultTransportMode?: string;
+    },
+  ): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    const user = await this.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.prisma.user.delete({
+      where: { id },
+    });
   }
 }

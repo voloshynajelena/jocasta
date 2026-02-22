@@ -1,11 +1,20 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, Platform, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 import { useAuthStore } from '../../src/store/authStore';
 import { useThemeStore } from '../../src/store/themeStore';
 import { useSettingsStore, TAXI_PROVIDERS, TRANSPORT_MULTIPLIERS } from '../../src/store/settingsStore';
 import { DEMO_EVENTS, DEMO_WEATHER, Event, DEMO_LOCATIONS } from '../../src/data/demoData';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+const getAccessToken = (): string | null => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('accessToken');
+  }
+  return null;
+};
 
 // Demo bus routes for transit mode
 const DEMO_BUS_ROUTES = [
@@ -24,6 +33,60 @@ export default function EventDetailScreen() {
   const { taxiProvider, transportMode } = useSettingsStore();
 
   const [isDeleting, setIsDeleting] = useState(false);
+  const [apiEvent, setApiEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(!isDemoMode);
+
+  // Fetch event from API
+  useEffect(() => {
+    if (isDemoMode || !id) return;
+
+    const fetchEvent = async () => {
+      const token = getAccessToken();
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/api/v1/events/${id}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setApiEvent({
+            id: data.id,
+            title: data.title,
+            type: data.type || 'other',
+            startAt: data.startAt,
+            endAt: data.endAt,
+            location: data.location ? {
+              id: data.location.id,
+              name: data.location.name || data.location.address,
+              address: data.location.address,
+              lat: data.location.latitude || 0,
+              lng: data.location.longitude || 0,
+            } : undefined,
+            source: data.source || 'managed',
+            isLocked: data.isLocked ?? false,
+            priority: data.priority || 2,
+            notes: data.notes,
+            externalProviderId: data.externalProviderId,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch event:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvent();
+  }, [id, isDemoMode]);
 
   // Calculate adjusted travel time based on transport mode
   const getAdjustedTravelTime = (baseMinutes: number) => {
@@ -74,8 +137,19 @@ export default function EventDetailScreen() {
   };
 
   const event = useMemo(() => {
-    return DEMO_EVENTS.find(e => e.id === id);
-  }, [id]);
+    if (isDemoMode) {
+      return DEMO_EVENTS.find(e => e.id === id);
+    }
+    return apiEvent;
+  }, [id, isDemoMode, apiEvent]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.notFound]}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+      </View>
+    );
+  }
 
   if (!event) {
     return (
@@ -163,11 +237,40 @@ export default function EventDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setIsDeleting(true);
-            setTimeout(() => {
+          onPress: async () => {
+            if (isDemoMode) {
               router.replace('/(tabs)');
-            }, 500);
+              return;
+            }
+
+            const token = getAccessToken();
+            if (!token) {
+              Alert.alert('Error', 'Please sign in');
+              return;
+            }
+
+            setIsDeleting(true);
+            try {
+              const response = await fetch(`${API_URL}/api/v1/events/${event.id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+              });
+
+              if (response.ok || response.status === 204) {
+                router.replace('/(tabs)');
+              } else {
+                const error = await response.json().catch(() => ({}));
+                Alert.alert('Error', error.message || 'Failed to delete event');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to delete event');
+            } finally {
+              setIsDeleting(false);
+            }
           },
         },
       ]

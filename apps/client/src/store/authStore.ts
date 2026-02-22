@@ -8,6 +8,7 @@ interface User {
   email: string;
   name: string | null;
   avatarUrl: string | null;
+  role?: string;
 }
 
 interface AuthTokens {
@@ -24,9 +25,12 @@ interface AuthState {
 
   initialize: () => Promise<void>;
   login: (tokens: AuthTokens) => Promise<void>;
+  loginWithPassword: (email: string, password: string) => Promise<void>;
+  loginWithApple: (appleId: string, email?: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
   setDemoMode: () => void;
+  isAdmin: () => boolean;
 }
 
 // Lazy load SecureStore only on native
@@ -269,5 +273,99 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       },
       error: null,
     });
+  },
+
+  loginWithPassword: async (email: string, password: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/auth/login`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email, password }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
+      }
+
+      const tokens = await response.json();
+
+      // Store tokens
+      await storeToken('accessToken', tokens.accessToken);
+      await storeToken('refreshToken', tokens.refreshToken);
+
+      api.setAccessToken(tokens.accessToken);
+
+      // Fetch user profile
+      const profile = await api.getProfile();
+
+      set({
+        isAuthenticated: true,
+        user: {
+          id: profile.id,
+          email: profile.email,
+          name: profile.name,
+          avatarUrl: profile.avatarUrl,
+          role: profile.role,
+        },
+        error: null,
+      });
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  loginWithApple: async (appleId: string, email?: string, name?: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/auth/apple`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ appleId, email, name }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Apple Sign-In failed');
+      }
+
+      const tokens = await response.json();
+
+      // Store tokens
+      await storeToken('accessToken', tokens.accessToken);
+      await storeToken('refreshToken', tokens.refreshToken);
+
+      api.setAccessToken(tokens.accessToken);
+
+      // Fetch user profile
+      const profile = await api.getProfile();
+
+      set({
+        isAuthenticated: true,
+        user: {
+          id: profile.id,
+          email: profile.email,
+          name: profile.name,
+          avatarUrl: profile.avatarUrl,
+          role: profile.role,
+        },
+        error: null,
+      });
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  isAdmin: () => {
+    return get().user?.role === 'admin';
   },
 }));

@@ -68,7 +68,13 @@ export class AuthController {
     const redirectUri = 'http://localhost:3001/api/v1/auth/google/mobile-callback';
     const state = 'mobile:' + this.authService.generateState();
 
-    const scopes = ['openid', 'email', 'profile'].join(' ');
+    const scopes = [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events',
+    ].join(' ');
 
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.append('client_id', clientId);
@@ -92,16 +98,21 @@ export class AuthController {
   }
 
   @Get('google/mobile-callback')
-  @ApiOperation({ summary: 'Google OAuth callback (mobile) - redirects to app' })
+  @ApiOperation({ summary: 'Google OAuth callback (mobile/web) - redirects to app' })
   async googleMobileCallback(
     @Req() req: Request,
     @Res() res: Response,
   ) {
     const { code, error } = req.query as { code?: string; error?: string };
+    const userAgent = req.headers['user-agent'] || '';
+    const isWebBrowser = !userAgent.includes('Expo') && (userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari'));
 
     if (error || !code) {
-      // Redirect to app with error
-      res.redirect(`jocasta://auth/error?message=${encodeURIComponent(error || 'No code')}`);
+      if (isWebBrowser) {
+        res.redirect(`http://localhost:2222/auth/error?message=${encodeURIComponent(error || 'No code')}`);
+      } else {
+        res.redirect(`jocasta://auth/error?message=${encodeURIComponent(error || 'No code')}`);
+      }
       return;
     }
 
@@ -109,12 +120,23 @@ export class AuthController {
       // Exchange code for tokens
       const tokens = await this.authService.exchangeGoogleCodeForMobile(code as string);
 
-      // Redirect to app with tokens
-      res.redirect(
-        `jocasta://auth/callback?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
-      );
+      if (isWebBrowser) {
+        // Redirect to web app with tokens in URL
+        res.redirect(
+          `http://localhost:2222/auth/success?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
+        );
+      } else {
+        // Redirect to mobile app with tokens
+        res.redirect(
+          `jocasta://auth/callback?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
+        );
+      }
     } catch (err: any) {
-      res.redirect(`jocasta://auth/error?message=${encodeURIComponent(err.message)}`);
+      if (isWebBrowser) {
+        res.redirect(`http://localhost:2222/auth/error?message=${encodeURIComponent(err.message)}`);
+      } else {
+        res.redirect(`jocasta://auth/error?message=${encodeURIComponent(err.message)}`);
+      }
     }
   }
 
@@ -225,6 +247,106 @@ export class AuthController {
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
     res.json({ success: true });
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiResponse({ status: 200, description: 'Returns access and refresh tokens' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async login(
+    @Body() body: { email: string; password: string },
+    @Res() res: Response,
+  ) {
+    const tokens = await this.authService.loginWithPassword(body.email, body.password);
+
+    // Set cookies for web
+    const isProd = process.env.NODE_ENV === 'production';
+
+    res.cookie('access_token', tokens.accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 900000, // 15 minutes
+      sameSite: 'lax',
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 604800000, // 7 days
+      sameSite: 'lax',
+    });
+
+    res.json(tokens);
+  }
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Register with email and password' })
+  @ApiResponse({ status: 201, description: 'User created, returns tokens' })
+  @ApiResponse({ status: 400, description: 'Email already registered' })
+  async register(
+    @Body() body: { email: string; password: string; name?: string },
+    @Res() res: Response,
+  ) {
+    const tokens = await this.authService.registerWithPassword(
+      body.email,
+      body.password,
+      body.name,
+    );
+
+    // Set cookies for web
+    const isProd = process.env.NODE_ENV === 'production';
+
+    res.cookie('access_token', tokens.accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 900000,
+      sameSite: 'lax',
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 604800000,
+      sameSite: 'lax',
+    });
+
+    res.json(tokens);
+  }
+
+  @Post('apple')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sign in with Apple' })
+  @ApiResponse({ status: 200, description: 'Returns access and refresh tokens' })
+  async appleSignIn(
+    @Body() body: { appleId: string; email?: string; name?: string },
+    @Res() res: Response,
+  ) {
+    const tokens = await this.authService.validateAppleUser(
+      body.appleId,
+      body.email || '',
+      body.name,
+    );
+
+    // Set cookies for web
+    const isProd = process.env.NODE_ENV === 'production';
+
+    res.cookie('access_token', tokens.accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 900000,
+      sameSite: 'lax',
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      maxAge: 604800000,
+      sameSite: 'lax',
+    });
+
+    res.json(tokens);
   }
 
   @Get('mobile/config')

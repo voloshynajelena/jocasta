@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, RefreshControl, Modal } from 'react-native';
-import { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, RefreshControl, Modal, Platform } from 'react-native';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
@@ -13,6 +13,16 @@ import {
   TravelSegment,
   DEMO_USER,
 } from '../../src/data/demoData';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+// Helper to get access token
+const getAccessToken = (): string | null => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('accessToken');
+  }
+  return null;
+};
 
 // Transport mode options with icons
 const TRANSPORT_OPTIONS: { mode: TransportMode; icon: string; label: string }[] = [
@@ -51,9 +61,68 @@ export default function TodayScreen() {
 
   const [quickInput, setQuickInput] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [apiEvents, setApiEvents] = useState<Event[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   // Per-event transport overrides (eventId -> transportMode)
   const [transportOverrides, setTransportOverrides] = useState<Record<string, TransportMode>>({});
+
+  // Fetch events from API when authenticated and not in demo mode
+  const fetchEvents = useCallback(async () => {
+    if (isDemoMode || !isAuthenticated) return;
+
+    const token = getAccessToken();
+    if (!token) return;
+
+    try {
+      setEventsLoading(true);
+      const today = new Date();
+      const startOfDay = new Date(today);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(today);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const response = await fetch(
+        `${API_URL}/api/v1/events?startDate=${startOfDay.toISOString()}&endDate=${endOfDay.toISOString()}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // API returns { events: [...], total, ... }
+        const eventsArray = data.events || [];
+        const mappedEvents: Event[] = eventsArray.map((e: any) => ({
+          id: e.id,
+          title: e.title,
+          type: e.type || 'other',
+          startAt: e.startAt,
+          endAt: e.endAt,
+          location: e.location ? {
+            name: e.location.name || e.location.address,
+            address: e.location.address,
+            lat: e.location.lat,
+            lng: e.location.lng,
+          } : undefined,
+          source: e.source || 'external_google',
+        }));
+        setApiEvents(mappedEvents);
+      }
+    } catch (err) {
+      console.error('Failed to fetch events:', err);
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [isDemoMode, isAuthenticated]);
+
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
 
   // Currently selected travel card for travel info modal
   const [selectedTravelEvent, setSelectedTravelEvent] = useState<Event | null>(null);
@@ -113,21 +182,27 @@ export default function TodayScreen() {
 
   // Get today's events
   const todayEvents = useMemo(() => {
-    if (!isDemoMode) return [];
-    return DEMO_EVENTS.filter(e => {
+    if (isDemoMode) {
+      return DEMO_EVENTS.filter(e => {
+        const eventDate = new Date(e.startAt);
+        return eventDate >= todayStart && eventDate < tomorrowStart;
+      }).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+    }
+    // Use API events for authenticated users
+    return apiEvents.filter(e => {
       const eventDate = new Date(e.startAt);
       return eventDate >= todayStart && eventDate < tomorrowStart;
     }).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-  }, [isDemoMode]);
+  }, [isDemoMode, apiEvents]);
 
   const summary = DEMO_DAILY_SUMMARY;
   const now = new Date();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await fetchEvents();
     setRefreshing(false);
-  }, []);
+  }, [fetchEvents]);
 
   const handleQuickAdd = () => {
     if (quickInput.trim()) {
@@ -456,11 +531,28 @@ export default function TodayScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {todayEvents.length === 0 ? (
+        {eventsLoading ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>📭</Text>
-            <Text style={styles.emptyTitle}>No events today</Text>
-            <Text style={styles.emptySubtitle}>Use the input above to add something</Text>
+            <Text style={styles.emptyIcon}>🔄</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Loading events...</Text>
+          </View>
+        ) : todayEvents.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>📅</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No events today</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+              {isDemoMode
+                ? 'Use the input above to add something'
+                : 'Go to Settings → Sync Calendar to import your Google events'}
+            </Text>
+            {!isDemoMode && (
+              <TouchableOpacity
+                style={[styles.syncHintButton, { backgroundColor: colors.primary }]}
+                onPress={() => router.push('/(tabs)/settings')}
+              >
+                <Text style={styles.syncHintButtonText}>Open Settings</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={styles.flowContainer}>
@@ -928,6 +1020,19 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: 14,
     color: '#888',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  syncHintButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  syncHintButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   flowContainer: {
     paddingHorizontal: 16,

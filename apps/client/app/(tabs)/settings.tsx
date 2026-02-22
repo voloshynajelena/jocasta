@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Modal, TextInput } from 'react-native';
-import { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
@@ -16,6 +16,7 @@ export default function SettingsScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const isAdmin = useAuthStore((s) => s.isAdmin);
   const isDemoMode = user?.id === 'demo-user';
 
   const { colors, mode, setTheme } = useThemeStore();
@@ -44,6 +45,146 @@ export default function SettingsScreen() {
   // Constraint editing modal state
   const [constraintModalVisible, setConstraintModalVisible] = useState(false);
   const [editingConstraint, setEditingConstraint] = useState<{ type: string; config: Record<string, string> } | null>(null);
+
+  // Google Calendar sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ isConnected: boolean; lastSyncAt: string | null } | null>(null);
+
+  // Google Calendar settings
+  const [lockGoogleEvents, setLockGoogleEvents] = useState(true);
+  const [includeGoogleInPlanning, setIncludeGoogleInPlanning] = useState(true);
+
+  const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+  // Get access token for API calls
+  const getAccessToken = (): string | null => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem('accessToken');
+    }
+    return null;
+  };
+
+  // Fetch Google Calendar sync status and user settings
+  useEffect(() => {
+    if (!isDemoMode && isAuthenticated) {
+      fetchSyncStatus();
+      fetchUserSettings();
+    }
+  }, [isDemoMode, isAuthenticated]);
+
+  const fetchUserSettings = async () => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        console.log('No access token for settings fetch');
+        return;
+      }
+      console.log('Fetching user settings...');
+      const response = await fetch(`${API_URL}/api/v1/settings`, {
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('User settings received:', data);
+        if (data.googleCalendar) {
+          setLockGoogleEvents(data.googleCalendar.lockGoogleEvents ?? true);
+          setIncludeGoogleInPlanning(data.googleCalendar.includeGoogleInPlanning ?? true);
+        }
+      } else {
+        console.error('Settings fetch failed:', response.status);
+      }
+    } catch (err) {
+      console.error('Failed to fetch user settings:', err);
+    }
+  };
+
+  const updateGoogleCalendarSetting = async (key: 'lockGoogleEvents' | 'includeGoogleInPlanning', value: boolean) => {
+    const token = getAccessToken();
+    if (!token) {
+      console.error('No access token for settings update');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/settings`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Settings update failed:', response.status, errorData);
+      } else {
+        console.log(`Updated ${key} to ${value}`);
+      }
+    } catch (err) {
+      console.error('Failed to update setting:', err);
+    }
+  };
+
+  const fetchSyncStatus = async () => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        console.log('No access token available for sync status');
+        return;
+      }
+      const response = await fetch(`${API_URL}/api/v1/integrations/google/status`, {
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSyncStatus(data);
+      } else {
+        console.error('Sync status failed:', response.status);
+      }
+    } catch (err) {
+      console.error('Failed to fetch sync status:', err);
+    }
+  };
+
+  const handleSyncCalendar = async () => {
+    const token = getAccessToken();
+    if (!token) {
+      Alert.alert('Error', 'Please sign in again to sync calendar');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/integrations/google/sync`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Sync Complete', `Imported: ${data.imported}, Updated: ${data.updated}, Deleted: ${data.deleted}`);
+        fetchSyncStatus();
+      } else {
+        Alert.alert('Sync Failed', data.error || data.errors?.[0] || 'Unknown error');
+      }
+    } catch (err: any) {
+      Alert.alert('Sync Error', err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -215,28 +356,81 @@ export default function SettingsScreen() {
             <View style={styles.integrationInfo}>
               <Text style={[styles.integrationName, { color: colors.text }]}>Google Calendar</Text>
               <Text style={[styles.integrationStatus, { color: colors.textMuted }]}>
-                {DEMO_GOOGLE_SYNC.isConnected
-                  ? `Synced ${formatLastSync(DEMO_GOOGLE_SYNC.lastSyncAt)}`
-                  : 'Not connected'}
+                {isDemoMode
+                  ? (DEMO_GOOGLE_SYNC.isConnected ? `Synced ${formatLastSync(DEMO_GOOGLE_SYNC.lastSyncAt)}` : 'Not connected')
+                  : (syncStatus?.isConnected ? `Synced ${formatLastSync(syncStatus.lastSyncAt)}` : 'Ready to sync')}
               </Text>
             </View>
-            <View style={[styles.statusBadge, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeConnected]}>
-              <Text style={[styles.statusBadgeText, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeTextConnected]}>
-                {DEMO_GOOGLE_SYNC.isConnected ? 'Connected' : 'Connect'}
-              </Text>
-            </View>
+            {isDemoMode ? (
+              <View style={[styles.statusBadge, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeConnected]}>
+                <Text style={[styles.statusBadgeText, DEMO_GOOGLE_SYNC.isConnected && styles.statusBadgeTextConnected]}>
+                  {DEMO_GOOGLE_SYNC.isConnected ? 'Connected' : 'Connect'}
+                </Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
+                onPress={handleSyncCalendar}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.syncButtonText}>Sync Now</Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
-          {DEMO_GOOGLE_SYNC.isConnected && (
+          {(isDemoMode ? DEMO_GOOGLE_SYNC.isConnected : syncStatus?.isConnected) && (
             <View style={[styles.integrationDetails, { borderTopColor: colors.border }]}>
-              <Text style={[styles.integrationDetail, { color: colors.textMuted }]}>
-                • Managing calendar: "Jocasta Managed"
-              </Text>
               <Text style={[styles.integrationDetail, { color: colors.textMuted }]}>
                 • Importing from: Primary calendar
               </Text>
+              {syncStatus?.lastSyncAt && (
+                <Text style={[styles.integrationDetail, { color: colors.textMuted }]}>
+                  • Last synced: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+                </Text>
+              )}
             </View>
           )}
         </View>
+
+        {/* Google Calendar Settings */}
+        {!isDemoMode && (
+          <>
+            <View style={[styles.settingRow, { backgroundColor: colors.card }]}>
+              <View style={styles.settingInfo}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Lock Google Events</Text>
+                <Text style={[styles.settingDesc, { color: colors.textMuted }]}>Prevent editing imported events</Text>
+              </View>
+              <Switch
+                value={lockGoogleEvents}
+                onValueChange={(value) => {
+                  setLockGoogleEvents(value);
+                  updateGoogleCalendarSetting('lockGoogleEvents', value);
+                }}
+                trackColor={{ false: '#4b5563', true: colors.primary }}
+                thumbColor="#fff"
+              />
+            </View>
+
+            <View style={[styles.settingRow, { backgroundColor: colors.card }]}>
+              <View style={styles.settingInfo}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Include in Planning</Text>
+                <Text style={[styles.settingDesc, { color: colors.textMuted }]}>Use Google events for travel & schedule calculations</Text>
+              </View>
+              <Switch
+                value={includeGoogleInPlanning}
+                onValueChange={(value) => {
+                  setIncludeGoogleInPlanning(value);
+                  updateGoogleCalendarSetting('includeGoogleInPlanning', value);
+                }}
+                trackColor={{ false: '#4b5563', true: colors.primary }}
+                thumbColor="#fff"
+              />
+            </View>
+          </>
+        )}
 
         <View style={[styles.integrationCard, { backgroundColor: colors.card }]}>
           <View style={styles.integrationHeader}>
@@ -530,6 +724,21 @@ export default function SettingsScreen() {
       {/* Account */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>ACCOUNT</Text>
+
+        {isAdmin() && (
+          <TouchableOpacity
+            style={[styles.adminButton, { backgroundColor: colors.card }]}
+            onPress={() => router.push('/admin')}
+          >
+            <Text style={styles.adminIcon}>👑</Text>
+            <View style={styles.adminInfo}>
+              <Text style={[styles.adminLabel, { color: colors.text }]}>Admin Panel</Text>
+              <Text style={[styles.adminDesc, { color: colors.textMuted }]}>Manage users and settings</Text>
+            </View>
+            <Text style={[styles.chevron, { color: colors.textMuted }]}>›</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
           <Text style={styles.dangerButtonText}>Sign Out</Text>
         </TouchableOpacity>
@@ -1073,6 +1282,22 @@ const styles = StyleSheet.create({
   statusBadgeTextConnected: {
     color: '#10b981',
   },
+  syncButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  syncButtonDisabled: {
+    backgroundColor: '#3b82f680',
+  },
+  syncButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   settingRow: {
     flexDirection: 'row',
     backgroundColor: '#2d2d44',
@@ -1144,6 +1369,31 @@ const styles = StyleSheet.create({
   constraintValue: {
     color: '#888',
     fontSize: 12,
+    marginTop: 2,
+  },
+  adminButton: {
+    flexDirection: 'row',
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  adminIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  adminInfo: {
+    flex: 1,
+  },
+  adminLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  adminDesc: {
+    color: '#888',
+    fontSize: 13,
     marginTop: 2,
   },
   dangerButton: {

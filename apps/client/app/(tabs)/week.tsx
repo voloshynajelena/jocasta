@@ -1,10 +1,19 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
-import { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform } from 'react-native';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
 import { useThemeStore } from '../../src/store/themeStore';
 import { DEMO_EVENTS, Event } from '../../src/data/demoData';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+const getAccessToken = (): string | null => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('accessToken');
+  }
+  return null;
+};
 
 export default function WeekScreen() {
   const router = useRouter();
@@ -16,12 +25,49 @@ export default function WeekScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, 1 = next week, -1 = last week
+  const [apiEvents, setApiEvents] = useState<Event[]>([]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  }, []);
+  // Fetch events from API
+  const fetchEvents = useCallback(async (startDate: Date, endDate: Date) => {
+    if (isDemoMode || !isAuthenticated) return;
+
+    const token = getAccessToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/events?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // API returns { events: [...], total, ... }
+        const eventsArray = data.events || [];
+        const mappedEvents: Event[] = eventsArray.map((e: any) => ({
+          id: e.id,
+          title: e.title,
+          type: e.type || 'other',
+          startAt: e.startAt,
+          endAt: e.endAt,
+          location: e.location ? {
+            name: e.location.name || e.location.address,
+            address: e.location.address,
+          } : undefined,
+          source: e.source || 'external_google',
+        }));
+        setApiEvents(mappedEvents);
+      }
+    } catch (err) {
+      console.error('Failed to fetch week events:', err);
+    }
+  }, [isDemoMode, isAuthenticated]);
 
   // Get week label based on offset
   const weekLabel = useMemo(() => {
@@ -51,6 +97,17 @@ export default function WeekScreen() {
     return days;
   }, [weekOffset]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (weekDays.length > 0) {
+      const startDate = new Date(weekDays[0]);
+      const endDate = new Date(weekDays[6]);
+      endDate.setHours(23, 59, 59, 999);
+      await fetchEvents(startDate, endDate);
+    }
+    setRefreshing(false);
+  }, [fetchEvents, weekDays]);
+
   // Get week date range for header
   const weekDateRange = useMemo(() => {
     if (weekDays.length === 0) return '';
@@ -65,15 +122,28 @@ export default function WeekScreen() {
     return `${startMonth} ${start.getDate()} - ${endMonth} ${end.getDate()}`;
   }, [weekDays]);
 
-  // Group events by day
-  const eventsByDay = useMemo(() => {
-    if (!isDemoMode) return new Map();
+  // Fetch events when week changes
+  useEffect(() => {
+    if (weekDays.length > 0 && !isDemoMode && isAuthenticated) {
+      const startDate = new Date(weekDays[0]);
+      const endDate = new Date(weekDays[6]);
+      endDate.setHours(23, 59, 59, 999);
+      fetchEvents(startDate, endDate);
+    }
+  }, [weekDays, isDemoMode, isAuthenticated, fetchEvents]);
 
+  // Group events by day (using local timezone)
+  const eventsByDay = useMemo(() => {
+    const events = isDemoMode ? DEMO_EVENTS : apiEvents;
     const map = new Map<string, Event[]>();
 
-    DEMO_EVENTS.forEach(event => {
+    events.forEach(event => {
       const eventDate = new Date(event.startAt);
-      const dateKey = eventDate.toISOString().split('T')[0];
+      // Use local date for grouping, not UTC
+      const year = eventDate.getFullYear();
+      const month = String(eventDate.getMonth() + 1).padStart(2, '0');
+      const day = String(eventDate.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
 
       if (!map.has(dateKey)) {
         map.set(dateKey, []);
@@ -89,7 +159,15 @@ export default function WeekScreen() {
     });
 
     return map;
-  }, [isDemoMode]);
+  }, [isDemoMode, apiEvents]);
+
+  // Helper to get local date key
+  const getLocalDateKey = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   // Calculate week stats for the displayed week
   const weekStats = useMemo(() => {
@@ -98,7 +176,7 @@ export default function WeekScreen() {
     let totalTravelMinutes = 0;
 
     weekDays.forEach(day => {
-      const dateKey = day.toISOString().split('T')[0];
+      const dateKey = getLocalDateKey(day);
       const dayEvents = eventsByDay.get(dateKey) || [];
       totalEvents += dayEvents.length;
       totalMeetings += dayEvents.filter(e => e.type === 'meeting').length;
@@ -189,7 +267,7 @@ export default function WeekScreen() {
         <View style={styles.weekHeader}>
           {weekDays.map((day, index) => {
             const isToday = day.getTime() === today.getTime();
-            const dateKey = day.toISOString().split('T')[0];
+            const dateKey = getLocalDateKey(day);
             const dayEvents = eventsByDay.get(dateKey) || [];
             const isPastDay = day < today;
 
@@ -251,7 +329,7 @@ export default function WeekScreen() {
         showsVerticalScrollIndicator={false}
       >
         {weekDays.map((day, dayIndex) => {
-          const dateKey = day.toISOString().split('T')[0];
+          const dateKey = getLocalDateKey(day);
           const dayEvents = eventsByDay.get(dateKey) || [];
           const isToday = day.getTime() === today.getTime();
           const isPast = day < today;

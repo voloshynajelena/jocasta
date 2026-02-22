@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
+import { EventParserService } from './event-parser.service';
 import { google, calendar_v3 } from 'googleapis';
 import * as crypto from 'crypto';
 
@@ -17,6 +18,7 @@ export class GoogleCalendarService {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly eventParser: EventParserService,
   ) {
     this.clientId = this.configService.get('google.clientId') || '';
     this.clientSecret = this.configService.get('google.clientSecret') || '';
@@ -167,12 +169,16 @@ export class GoogleCalendarService {
     let deleted = 0;
 
     try {
+      // Start from beginning of today (in user's timezone, approximated as UTC-7 for Edmonton)
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
       const params: calendar_v3.Params$Resource$Events$List = {
         calendarId: 'primary',
         maxResults: 250,
         singleEvents: true,
         orderBy: 'startTime',
-        timeMin: new Date().toISOString(),
+        timeMin: startOfToday.toISOString(),
         timeMax: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
 
@@ -220,6 +226,30 @@ export class GoogleCalendarService {
 
         if (!startAt || !endAt) continue;
 
+        // Parse the Google event to extract meaningful data
+        const parsedEvent = this.eventParser.parseGoogleEvent(googleEvent);
+
+        // Get user settings for lock preference
+        const userSettings = await this.prisma.userSettings.findUnique({
+          where: { userId },
+        });
+        const shouldLock = userSettings?.lockGoogleEvents ?? true;
+
+        // Store original Google event data for reference
+        const externalData = JSON.parse(JSON.stringify({
+          id: googleEvent.id,
+          summary: googleEvent.summary,
+          description: googleEvent.description,
+          location: googleEvent.location,
+          start: googleEvent.start,
+          end: googleEvent.end,
+          attendees: googleEvent.attendees,
+          organizer: googleEvent.organizer,
+          colorId: googleEvent.colorId,
+          recurringEventId: googleEvent.recurringEventId,
+          htmlLink: googleEvent.htmlLink,
+        }));
+
         // Check if event exists
         const existing = await this.prisma.event.findFirst({
           where: { userId, externalProviderId: googleEvent.id },
@@ -231,10 +261,14 @@ export class GoogleCalendarService {
             await this.prisma.event.update({
               where: { id: existing.id },
               data: {
-                title: googleEvent.summary || 'Untitled',
+                title: parsedEvent.title,
+                type: parsedEvent.type,
                 startAt,
                 endAt,
+                priority: parsedEvent.priority,
+                notes: parsedEvent.notes || existing.notes,
                 externalEtag: googleEvent.etag,
+                externalData,
                 lastModifiedAt: new Date(),
               },
             });
@@ -244,13 +278,17 @@ export class GoogleCalendarService {
           await this.prisma.event.create({
             data: {
               userId,
-              title: googleEvent.summary || 'Untitled',
-              type: 'other',
+              title: parsedEvent.title,
+              type: parsedEvent.type,
               startAt,
               endAt,
+              isLocked: shouldLock,
+              priority: parsedEvent.priority,
+              notes: parsedEvent.notes,
               source: 'external_google',
               externalProviderId: googleEvent.id,
               externalEtag: googleEvent.etag,
+              externalData,
             },
           });
           imported++;

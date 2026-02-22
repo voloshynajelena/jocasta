@@ -3,6 +3,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
+import { useSettingsStore, TRANSPORT_MULTIPLIERS } from '../../src/store/settingsStore';
 import {
   DEMO_EVENTS,
   DEMO_WEATHER,
@@ -18,8 +20,28 @@ export default function TodayScreen() {
   const user = useAuthStore((s) => s.user);
   const isDemoMode = user?.id === 'demo-user';
 
+  const { colors } = useThemeStore();
+  const { transportMode } = useSettingsStore();
+
   const [quickInput, setQuickInput] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Get transport mode icon
+  const getTransportModeIcon = () => {
+    const icons = {
+      sedan: '🚗',
+      motorcycle: '🏍️',
+      taxi: '🚕',
+      transit: '🚌',
+    };
+    return icons[transportMode];
+  };
+
+  // Calculate adjusted travel time based on transport mode
+  const getAdjustedTravelTime = (baseMinutes: number) => {
+    const multiplier = TRANSPORT_MULTIPLIERS[transportMode];
+    return Math.round(baseMinutes * multiplier);
+  };
 
   const today = new Date();
   const todayStart = new Date(today);
@@ -96,36 +118,44 @@ export default function TodayScreen() {
   }, 0);
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>
-            {getGreeting()}, {user?.name?.split(' ')[0] || 'there'}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header - Prominent Date Display */}
+      <View style={[styles.header, { backgroundColor: colors.background }]}>
+        <View style={styles.dateHeader}>
+          <Text style={[styles.dayName, { color: colors.primary }]}>
+            {today.toLocaleDateString('en-US', { weekday: 'long' })}
           </Text>
-          <Text style={styles.dateText}>
-            {today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          <Text style={[styles.dateNumber, { color: colors.text }]}>
+            {today.getDate()}
+          </Text>
+          <Text style={[styles.monthYear, { color: colors.textSecondary }]}>
+            {today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
           </Text>
         </View>
-        <View style={styles.weatherBadge}>
+        <View style={[styles.weatherCard, { backgroundColor: colors.card }]}>
           <Text style={styles.weatherIcon}>{getWeatherIcon(DEMO_WEATHER.current.condition)}</Text>
-          <Text style={styles.weatherTemp}>{DEMO_WEATHER.current.temperature}°C</Text>
+          <View>
+            <Text style={[styles.weatherTemp, { color: colors.text }]}>{DEMO_WEATHER.current.temperature}°C</Text>
+            <Text style={[styles.weatherCondition, { color: colors.textMuted }]}>
+              {DEMO_WEATHER.current.condition}
+            </Text>
+          </View>
         </View>
       </View>
 
       {/* Quick Add */}
       <View style={styles.quickAddContainer}>
         <TextInput
-          style={styles.quickInput}
+          style={[styles.quickInput, { backgroundColor: colors.card, color: colors.text }]}
           placeholder="Add event... 'Coffee with Sarah Friday 3pm'"
-          placeholderTextColor="#666"
+          placeholderTextColor={colors.textMuted}
           value={quickInput}
           onChangeText={setQuickInput}
           onSubmitEditing={handleQuickAdd}
           returnKeyType="send"
         />
         <TouchableOpacity
-          style={[styles.addButton, !quickInput.trim() && styles.addButtonDisabled]}
+          style={[styles.addButton, { backgroundColor: colors.primary }, !quickInput.trim() && styles.addButtonDisabled]}
           onPress={handleQuickAdd}
           disabled={!quickInput.trim()}
         >
@@ -143,25 +173,25 @@ export default function TodayScreen() {
 
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{todayEvents.length}</Text>
-          <Text style={styles.summaryLabel}>Events</Text>
+        <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.summaryNumber, { color: colors.text }]}>{todayEvents.length}</Text>
+          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Events</Text>
         </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>
+        <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.summaryNumber, { color: colors.text }]}>
             {todayEvents.filter(e => e.type === 'meeting').length}
           </Text>
-          <Text style={styles.summaryLabel}>Meetings</Text>
+          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Meetings</Text>
         </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{totalTravelMinutes}m</Text>
-          <Text style={styles.summaryLabel}>Travel</Text>
+        <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.summaryNumber, { color: colors.text }]}>{totalTravelMinutes}m</Text>
+          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Travel</Text>
         </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>
+        <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.summaryNumber, { color: colors.text }]}>
             {Math.round((480 - todayEvents.length * 45) / 60)}h
           </Text>
-          <Text style={styles.summaryLabel}>Free</Text>
+          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Free</Text>
         </View>
       </View>
 
@@ -216,13 +246,13 @@ export default function TodayScreen() {
                         </View>
                         <View style={styles.travelCard}>
                           <View style={styles.travelCardInner}>
-                            <Text style={styles.travelModeIcon}>🚗</Text>
+                            <Text style={styles.travelModeIcon}>{getTransportModeIcon()}</Text>
                             <View style={styles.travelCardContent}>
                               <Text style={styles.travelLeaveBy}>
                                 Leave by {formatTime(event.travelSegment.departAt)}
                               </Text>
                               <Text style={styles.travelEta}>
-                                {event.travelSegment.etaMinutes} min drive • {event.travelSegment.distanceKm.toFixed(1)} km
+                                {getAdjustedTravelTime(event.travelSegment.etaMinutes)} min {transportMode} • {event.travelSegment.distanceKm.toFixed(1)} km
                               </Text>
                             </View>
                             {event.travelSegment.confidence < 0.9 && (
@@ -468,32 +498,43 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
   },
-  greeting: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+  dateHeader: {
+    flex: 1,
   },
-  dateText: {
+  dayName: {
     fontSize: 14,
-    color: '#888',
-    marginTop: 4,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  weatherBadge: {
+  dateNumber: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    marginVertical: -4,
+  },
+  monthYear: {
+    fontSize: 14,
+  },
+  weatherCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2d2d44',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    gap: 10,
   },
   weatherIcon: {
-    fontSize: 16,
-    marginRight: 6,
+    fontSize: 28,
   },
   weatherTemp: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  weatherCondition: {
+    fontSize: 12,
+    textTransform: 'capitalize',
   },
   quickAddContainer: {
     flexDirection: 'row',

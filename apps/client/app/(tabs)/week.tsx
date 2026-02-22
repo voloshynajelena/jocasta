@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
 import { DEMO_EVENTS, Event } from '../../src/data/demoData';
 
 export default function WeekScreen() {
@@ -10,6 +11,7 @@ export default function WeekScreen() {
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isDemoMode = user?.id === 'demo-user';
+  const { colors } = useThemeStore();
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -98,10 +100,10 @@ export default function WeekScreen() {
   today.setHours(0, 0, 0, 0);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>This Week</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>This Week</Text>
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{weekStats.totalEvents}</Text>

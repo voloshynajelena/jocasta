@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
 import { DEMO_TASKS, DEMO_NOTIFICATIONS, Task, NotificationJob } from '../../src/data/demoData';
 
 export default function InboxScreen() {
@@ -10,6 +11,7 @@ export default function InboxScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const isDemoMode = user?.id === 'demo-user';
+  const { colors } = useThemeStore();
   const [refreshing, setRefreshing] = useState(false);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'tasks' | 'notifications'>('tasks');
@@ -61,11 +63,11 @@ export default function InboxScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Inbox</Text>
-        <Text style={styles.headerSubtitle}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Inbox</Text>
+        <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
           {pendingTasks.length} tasks need scheduling
         </Text>
       </View>

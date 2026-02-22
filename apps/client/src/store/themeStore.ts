@@ -61,7 +61,6 @@ interface ThemeState {
   setTheme: (mode: ThemeMode) => void;
 }
 
-// Check saved preference
 const getSavedTheme = (): ThemeMode => {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     try {
@@ -69,7 +68,7 @@ const getSavedTheme = (): ThemeMode => {
       if (saved === 'light' || saved === 'dark') return saved;
     } catch {}
   }
-  return 'dark'; // default
+  return 'dark';
 };
 
 const initialMode = getSavedTheme();
@@ -82,7 +81,6 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const newMode = get().mode === 'dark' ? 'light' : 'dark';
     const newColors = newMode === 'dark' ? darkColors : lightColors;
 
-    // Save preference
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       try {
         localStorage.setItem('theme', newMode);

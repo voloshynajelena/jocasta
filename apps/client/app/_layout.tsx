@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { View, Platform } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useSegments } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 
 import { useAuthStore } from '../src/store/authStore';
+import { useThemeStore } from '../src/store/themeStore';
+import { AppHeader } from '../src/components/AppHeader';
 
 console.log('[Layout Module] Loaded');
 
@@ -17,6 +19,41 @@ const queryClient = new QueryClient({
   },
 });
 
+function LayoutContent() {
+  const { colors, mode } = useThemeStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const segments = useSegments();
+
+  // Show header only on tabs screens when authenticated
+  const showHeader = isAuthenticated && segments[0] === '(tabs)';
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {showHeader && <AppHeader />}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen
+          name="proposal/[id]"
+          options={{
+            presentation: 'modal',
+            headerShown: true,
+            headerStyle: { backgroundColor: colors.headerBg },
+            headerTintColor: colors.text,
+            title: 'Review Proposal',
+          }}
+        />
+      </Stack>
+      {Platform.OS !== 'web' && <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />}
+    </View>
+  );
+}
+
 export default function RootLayout() {
   useEffect(() => {
     console.log('[Layout] Calling initialize...');
@@ -25,28 +62,7 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {Platform.OS !== 'web' && <StatusBar style="light" />}
-      <View style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: '#1a1a2e' },
-          }}
-        >
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen
-            name="proposal/[id]"
-            options={{
-              presentation: 'modal',
-              headerShown: true,
-              headerStyle: { backgroundColor: '#1a1a2e' },
-              headerTintColor: '#fff',
-              title: 'Review Proposal',
-            }}
-          />
-        </Stack>
-      </View>
+      <LayoutContent />
     </QueryClientProvider>
   );
 }

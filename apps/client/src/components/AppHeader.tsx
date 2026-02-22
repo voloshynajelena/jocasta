@@ -24,11 +24,11 @@ function SunIcon({ color }: { color: string }) {
 }
 
 // Moon Icon for light mode (click to switch to dark)
-function MoonIcon({ color }: { color: string }) {
+function MoonIcon({ color, bgColor }: { color: string; bgColor: string }) {
   return (
     <View style={headerIconStyles.iconContainer}>
       <View style={[headerIconStyles.moonOuter, { backgroundColor: color }]} />
-      <View style={[headerIconStyles.moonCut]} />
+      <View style={[headerIconStyles.moonCut, { backgroundColor: bgColor }]} />
     </View>
   );
 }
@@ -65,7 +65,7 @@ const headerIconStyles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1e293b', // Uses header background color
     top: 0,
     right: 1,
   },
@@ -111,7 +111,7 @@ export function AppHeader({ onSync, syncing = false }: AppHeaderProps) {
       <View style={styles.actions}>
         {/* Theme Toggle - Sun shows in dark mode, Moon shows in light mode */}
         <TouchableOpacity style={styles.iconButton} onPress={toggleTheme}>
-          {mode === 'dark' ? <SunIcon color="#ffffff" /> : <MoonIcon color="#ffffff" />}
+          {mode === 'dark' ? <SunIcon color="#ffffff" /> : <MoonIcon color="#ffffff" bgColor={colors.headerBg} />}
         </TouchableOpacity>
 
         {/* Profile */}

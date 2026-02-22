@@ -1,9 +1,18 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
+import { useSettingsStore, TAXI_PROVIDERS, TRANSPORT_MULTIPLIERS } from '../../src/store/settingsStore';
 import { DEMO_EVENTS, DEMO_WEATHER, Event, DEMO_LOCATIONS } from '../../src/data/demoData';
+
+// Demo bus routes for transit mode
+const DEMO_BUS_ROUTES = [
+  { number: '3', name: 'Sandstone', color: '#ef4444' },
+  { number: '301', name: 'BRT North', color: '#3b82f6' },
+  { number: '72', name: 'McKnight', color: '#10b981' },
+];
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -11,7 +20,58 @@ export default function EventDetailScreen() {
   const user = useAuthStore((s) => s.user);
   const isDemoMode = user?.id === 'demo-user';
 
+  const { colors } = useThemeStore();
+  const { taxiProvider, transportMode } = useSettingsStore();
+
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Calculate adjusted travel time based on transport mode
+  const getAdjustedTravelTime = (baseMinutes: number) => {
+    const multiplier = TRANSPORT_MULTIPLIERS[transportMode];
+    return Math.round(baseMinutes * multiplier);
+  };
+
+  // Get transport mode icon
+  const getTransportModeIcon = () => {
+    const icons = {
+      sedan: '🚗',
+      motorcycle: '🏍️',
+      taxi: taxiProvider === 'uber' ? '🚗' : '🚕',
+      transit: '🚌',
+    };
+    return icons[transportMode];
+  };
+
+  // Open maps with location
+  const openMaps = (location: { lat: number; lng: number; address: string }) => {
+    const { lat, lng, address } = location;
+    const encodedAddress = encodeURIComponent(address);
+
+    if (Platform.OS === 'web') {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, '_blank');
+    } else if (Platform.OS === 'ios') {
+      Linking.openURL(`maps://app?daddr=${lat},${lng}&q=${encodedAddress}`);
+    } else {
+      Linking.openURL(`google.navigation:q=${lat},${lng}`);
+    }
+  };
+
+  // Open taxi app or call
+  const openTaxi = (destination: { lat: number; lng: number; address: string }) => {
+    if (taxiProvider === 'uber') {
+      const uberUrl = Platform.OS === 'web'
+        ? `https://m.uber.com/ul/?action=setPickup&dropoff[latitude]=${destination.lat}&dropoff[longitude]=${destination.lng}`
+        : `uber://?action=setPickup&dropoff[latitude]=${destination.lat}&dropoff[longitude]=${destination.lng}`;
+      Linking.openURL(uberUrl).catch(() => {
+        // Fallback to web if app not installed
+        Linking.openURL(`https://m.uber.com/ul/?action=setPickup&dropoff[latitude]=${destination.lat}&dropoff[longitude]=${destination.lng}`);
+      });
+    } else {
+      // Checker Cabs - make phone call
+      const phoneUrl = `tel:${TAXI_PROVIDERS.checker.phone}`;
+      Linking.openURL(phoneUrl);
+    }
+  };
 
   const event = useMemo(() => {
     return DEMO_EVENTS.find(e => e.id === id);
@@ -136,15 +196,15 @@ export default function EventDetailScreen() {
   });
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
-          <Text style={styles.headerButtonText}>← Back</Text>
+          <Text style={[styles.headerButtonText, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
         {!event.isLocked && (
           <TouchableOpacity style={styles.headerButton} onPress={handleEdit}>
-            <Text style={styles.editButtonText}>Edit</Text>
+            <Text style={[styles.editButtonText, { color: colors.primary }]}>Edit</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -164,7 +224,7 @@ export default function EventDetailScreen() {
       </View>
 
       {/* Title */}
-      <Text style={styles.title}>{event.title}</Text>
+      <Text style={[styles.title, { color: colors.text }]}>{event.title}</Text>
 
       {/* Priority */}
       {event.priority === 3 && (
@@ -175,23 +235,23 @@ export default function EventDetailScreen() {
       )}
 
       {/* Time Card */}
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.cardRow}>
           <Text style={styles.cardIcon}>📆</Text>
           <View style={styles.cardContent}>
-            <Text style={styles.cardLabel}>Date</Text>
-            <Text style={styles.cardValue}>{formatDate(event.startAt)}</Text>
+            <Text style={[styles.cardLabel, { color: colors.textMuted }]}>Date</Text>
+            <Text style={[styles.cardValue, { color: colors.text }]}>{formatDate(event.startAt)}</Text>
           </View>
         </View>
-        <View style={styles.cardDivider} />
+        <View style={[styles.cardDivider, { backgroundColor: colors.border }]} />
         <View style={styles.cardRow}>
           <Text style={styles.cardIcon}>🕐</Text>
           <View style={styles.cardContent}>
-            <Text style={styles.cardLabel}>Time</Text>
-            <Text style={styles.cardValue}>
+            <Text style={[styles.cardLabel, { color: colors.textMuted }]}>Time</Text>
+            <Text style={[styles.cardValue, { color: colors.text }]}>
               {formatTime(event.startAt)} - {formatTime(event.endAt)}
             </Text>
-            <Text style={styles.cardSubtext}>
+            <Text style={[styles.cardSubtext, { color: colors.textMuted }]}>
               Duration: {formatDuration(event.startAt, event.endAt)}
             </Text>
           </View>
@@ -200,15 +260,18 @@ export default function EventDetailScreen() {
 
       {/* Location Card */}
       {event.location && (
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
           <View style={styles.cardRow}>
             <Text style={styles.cardIcon}>📍</Text>
             <View style={styles.cardContent}>
-              <Text style={styles.cardLabel}>Location</Text>
-              <Text style={styles.cardValue}>{event.location.name}</Text>
-              <Text style={styles.cardSubtext}>{event.location.address}</Text>
+              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>Location</Text>
+              <Text style={[styles.cardValue, { color: colors.text }]}>{event.location.name}</Text>
+              <Text style={[styles.cardSubtext, { color: colors.textMuted }]}>{event.location.address}</Text>
             </View>
-            <TouchableOpacity style={styles.mapButton}>
+            <TouchableOpacity
+              style={styles.mapButton}
+              onPress={() => openMaps(event.location!)}
+            >
               <Text style={styles.mapButtonText}>Map</Text>
             </TouchableOpacity>
           </View>
@@ -219,7 +282,7 @@ export default function EventDetailScreen() {
       {event.travelSegment && (
         <View style={styles.travelCard}>
           <View style={styles.travelHeader}>
-            <Text style={styles.travelTitle}>🚗 Travel Info</Text>
+            <Text style={styles.travelTitle}>{getTransportModeIcon()} Travel Info</Text>
             <Text style={styles.travelConfidence}>
               {Math.round(event.travelSegment.confidence * 100)}% confidence
             </Text>
@@ -231,22 +294,60 @@ export default function EventDetailScreen() {
             </View>
             <View style={styles.travelItem}>
               <Text style={styles.travelItemLabel}>ETA</Text>
-              <Text style={styles.travelItemValue}>{event.travelSegment.etaMinutes} min</Text>
+              <Text style={styles.travelItemValue}>
+                {getAdjustedTravelTime(event.travelSegment.etaMinutes)} min
+              </Text>
             </View>
             <View style={styles.travelItem}>
               <Text style={styles.travelItemLabel}>Mode</Text>
-              <Text style={styles.travelItemValue}>{event.travelSegment.mode}</Text>
+              <Text style={styles.travelItemValue}>{transportMode}</Text>
             </View>
             <View style={styles.travelItem}>
               <Text style={styles.travelItemLabel}>Source</Text>
               <Text style={styles.travelItemValue}>{event.travelSegment.source}</Text>
             </View>
           </View>
+
+          {/* Bus Routes - shown when transit mode */}
+          {transportMode === 'transit' && (
+            <View style={styles.busRoutesSection}>
+              <Text style={styles.busRoutesTitle}>Suggested Routes</Text>
+              <View style={styles.busRoutesList}>
+                {DEMO_BUS_ROUTES.map((route, idx) => (
+                  <View key={idx} style={styles.busRoute}>
+                    <View style={[styles.busNumber, { backgroundColor: route.color }]}>
+                      <Text style={styles.busNumberText}>{route.number}</Text>
+                    </View>
+                    <Text style={styles.busName}>{route.name}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
           <View style={styles.leaveBySection}>
             <Text style={styles.leaveByLabel}>Leave by</Text>
             <Text style={styles.leaveByTime}>{formatTime(event.travelSegment.departAt)}</Text>
             <Text style={styles.leaveBySubtext}>to arrive on time</Text>
           </View>
+
+          {/* Taxi Action Button */}
+          {transportMode === 'taxi' && event.location && (
+            <TouchableOpacity
+              style={[
+                styles.taxiActionButton,
+                { backgroundColor: taxiProvider === 'uber' ? '#000' : '#f59e0b' }
+              ]}
+              onPress={() => openTaxi(event.location!)}
+            >
+              <Text style={styles.taxiActionIcon}>
+                {taxiProvider === 'uber' ? '🚗' : '📞'}
+              </Text>
+              <Text style={styles.taxiActionText}>
+                {taxiProvider === 'uber' ? 'Open Uber' : `Call ${TAXI_PROVIDERS.checker.displayPhone}`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -270,12 +371,12 @@ export default function EventDetailScreen() {
 
       {/* Notes */}
       {event.notes && (
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
           <View style={styles.cardRow}>
             <Text style={styles.cardIcon}>📝</Text>
             <View style={styles.cardContent}>
-              <Text style={styles.cardLabel}>Notes</Text>
-              <Text style={styles.notesText}>{event.notes}</Text>
+              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>Notes</Text>
+              <Text style={[styles.notesText, { color: colors.textSecondary }]}>{event.notes}</Text>
             </View>
           </View>
         </View>
@@ -284,7 +385,7 @@ export default function EventDetailScreen() {
       {/* Source Badge */}
       <View style={styles.sourceCard}>
         <Text style={styles.sourceIcon}>{sourceBadge.icon}</Text>
-        <Text style={styles.sourceText}>From {sourceBadge.text}</Text>
+        <Text style={[styles.sourceText, { color: colors.textMuted }]}>From {sourceBadge.text}</Text>
         {event.externalProviderId && (
           <Text style={styles.sourceId}>ID: {event.externalProviderId}</Text>
         )}
@@ -552,6 +653,62 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 13,
     marginTop: 2,
+  },
+  busRoutesSection: {
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 14,
+  },
+  busRoutesTitle: {
+    color: '#60a5fa',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  busRoutesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  busRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  busNumber: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  busNumberText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  busName: {
+    color: '#93c5fd',
+    fontSize: 13,
+  },
+  taxiActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 10,
+    gap: 10,
+  },
+  taxiActionIcon: {
+    fontSize: 20,
+  },
+  taxiActionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   weatherCard: {
     backgroundColor: '#422006',

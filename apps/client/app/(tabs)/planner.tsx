@@ -3,6 +3,7 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
 import { DEMO_TASKS, Task } from '../../src/data/demoData';
 
 const EXAMPLE_INPUTS = [
@@ -18,6 +19,7 @@ export default function PlannerScreen() {
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isDemoMode = user?.id === 'demo-user';
+  const { colors } = useThemeStore();
 
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -72,14 +74,14 @@ export default function PlannerScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>AI Planner</Text>
-          <Text style={styles.headerSubtitle}>Tell me what you need to schedule</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>AI Planner</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>Tell me what you need to schedule</Text>
         </View>
 
         {/* Input Area */}

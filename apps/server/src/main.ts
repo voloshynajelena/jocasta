@@ -73,10 +73,13 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
-  logger.info(`🚀 Jocasta Server running on http://localhost:${port}`);
+  logger.info(`🚀 Jocasta Server running on port ${port}`);
   logger.info(`📚 API Docs: http://localhost:${port}/api/docs`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

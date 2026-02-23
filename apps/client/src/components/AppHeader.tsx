@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/authStore';
 function HeaderLogo() {
   return (
     <Image
-      source={require('../../assets/images/logo.png')}
+      source={require('../../assets/logo.png')}
       style={{ width: 32, height: 32 }}
       resizeMode="contain"
     />

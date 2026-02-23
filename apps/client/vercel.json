@@ -1,7 +1,7 @@
 {
-  "buildCommand": "pnpm install && npx expo export --platform web",
+  "installCommand": "npm install",
+  "buildCommand": "npx expo export --platform web",
   "outputDirectory": "dist",
-  "installCommand": "npm install -g pnpm && pnpm install",
   "framework": null,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

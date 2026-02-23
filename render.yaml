@@ -13,7 +13,7 @@ services:
       pnpm install --frozen-lockfile --prod=false &&
       cd apps/server && npx prisma generate &&
       cd ../.. && pnpm build --filter=@jocasta/server
-    startCommand: cd apps/server && npx prisma migrate deploy && node dist/main.js
+    startCommand: cd apps/server && npx prisma migrate deploy && node dist/src/main.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

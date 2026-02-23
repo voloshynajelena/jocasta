@@ -1,18 +1,14 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 
 import { useThemeStore } from '../store/themeStore';
 import { useAuthStore } from '../store/authStore';
 
-// Blue J. logo for header - using actual logo image
+// Blue J. logo for header - simple text version
 function HeaderLogo() {
   return (
-    <Image
-      source={require('../../assets/logo.png')}
-      style={{ width: 32, height: 32 }}
-      resizeMode="contain"
-    />
+    <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#5b8def' }}>J.</Text>
   );
 }
 

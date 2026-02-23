@@ -228,53 +228,58 @@ export default function EventDetailScreen() {
 
   const sourceBadge = getSourceBadge(event.source);
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Event',
-      'Are you sure you want to delete this event?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (isDemoMode) {
-              router.replace('/(tabs)');
-              return;
-            }
+  const handleDelete = async () => {
+    // Use window.confirm on web since Alert.alert doesn't work
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm('Are you sure you want to delete this event?')
+      : await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Delete Event',
+            'Are you sure you want to delete this event?',
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Delete', style: 'destructive', onPress: () => resolve(true) },
+            ]
+          );
+        });
 
-            const token = getAccessToken();
-            if (!token) {
-              Alert.alert('Error', 'Please sign in');
-              return;
-            }
+    if (!confirmed) return;
 
-            setIsDeleting(true);
-            try {
-              const response = await fetch(`${API_URL}/api/v1/events/${event.id}`, {
-                method: 'DELETE',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-              });
+    if (isDemoMode) {
+      router.replace('/(tabs)');
+      return;
+    }
 
-              if (response.ok || response.status === 204) {
-                router.replace('/(tabs)');
-              } else {
-                const error = await response.json().catch(() => ({}));
-                Alert.alert('Error', error.message || 'Failed to delete event');
-              }
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to delete event');
-            } finally {
-              setIsDeleting(false);
-            }
-          },
+    const token = getAccessToken();
+    if (!token) {
+      Platform.OS === 'web' ? window.alert('Please sign in') : Alert.alert('Error', 'Please sign in');
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/events/${event.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
-      ]
-    );
+        credentials: 'include',
+      });
+
+      if (response.ok || response.status === 204) {
+        router.replace('/(tabs)');
+      } else {
+        const error = await response.json().catch(() => ({}));
+        const msg = error.message || 'Failed to delete event';
+        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Failed to delete event';
+      Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleEdit = () => {

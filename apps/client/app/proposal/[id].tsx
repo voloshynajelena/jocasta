@@ -1,9 +1,21 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 
 import { useAuthStore } from '../../src/store/authStore';
 import { generateDemoProposals, Proposal, DEMO_WEATHER } from '../../src/data/demoData';
+
+interface LocationSuggestion {
+  placeId: string;
+  name: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  openingHours?: {
+    isOpen: boolean;
+    weekdayText?: string[];
+  };
+}
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -311,10 +323,26 @@ export default function ProposalScreen() {
   const [isUrgent, setIsUrgent] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
+  // Location state
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState<LocationSuggestion | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [travelTime, setTravelTime] = useState<{ minutes: number; distanceKm: number } | null>(null);
+  const [businessHours, setBusinessHours] = useState<{ isOpen: boolean; weekdayText?: string[] } | null>(null);
+  const [homeLocation, setHomeLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
+
   // Parse the input for date, time, and location
   const parsedInput = useMemo(() => {
     return parseNaturalLanguage(taskTitle as string || '');
   }, [taskTitle]);
+
+  // Initialize location from parsed input
+  useEffect(() => {
+    if (parsedInput.location && !selectedLocation) {
+      setLocationQuery(parsedInput.location);
+    }
+  }, [parsedInput.location]);
 
   // Fetch real events from API
   useEffect(() => {
@@ -359,6 +387,203 @@ export default function ProposalScreen() {
     fetchEvents();
   }, [isDemoMode]);
 
+  // Fetch user's default home location
+  useEffect(() => {
+    if (isDemoMode) return;
+
+    const fetchHomeLocation = async () => {
+      const token = getAccessToken();
+      if (!token) return;
+
+      try {
+        const response = await fetch(`${API_URL}/api/v1/locations`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const defaultLoc = data.locations?.find((l: any) => l.isDefault);
+          if (defaultLoc && defaultLoc.latitude && defaultLoc.longitude) {
+            setHomeLocation({
+              lat: defaultLoc.latitude,
+              lng: defaultLoc.longitude,
+              address: defaultLoc.address || defaultLoc.name || 'Home'
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch home location:', err);
+      }
+    };
+
+    fetchHomeLocation();
+  }, [isDemoMode]);
+
+  // Search locations with debounce
+  useEffect(() => {
+    if (isDemoMode || locationQuery.length < 2) {
+      setLocationSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const token = getAccessToken();
+      if (!token) return;
+
+      setLoadingLocation(true);
+      try {
+        const response = await fetch(
+          `${API_URL}/api/v1/locations/search?q=${encodeURIComponent(locationQuery)}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setLocationSuggestions(data.suggestions || []);
+        }
+      } catch (err) {
+        console.error('Failed to search locations:', err);
+      } finally {
+        setLoadingLocation(false);
+      }
+    }, 300); // Debounce 300ms
+
+    return () => clearTimeout(timer);
+  }, [locationQuery, isDemoMode]);
+
+  // Calculate travel time when location is selected
+  useEffect(() => {
+    if (!selectedLocation || !homeLocation || isDemoMode) {
+      setTravelTime(null);
+      return;
+    }
+
+    // Need coordinates for the destination
+    if (!selectedLocation.latitude || !selectedLocation.longitude) {
+      // Fetch place details if needed
+      const fetchDetails = async () => {
+        const token = getAccessToken();
+        if (!token) return;
+
+        try {
+          const response = await fetch(
+            `${API_URL}/api/v1/locations/details/${selectedLocation.placeId}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include',
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.latitude && data.longitude) {
+              setSelectedLocation({
+                ...selectedLocation,
+                latitude: data.latitude,
+                longitude: data.longitude,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch place details:', err);
+        }
+      };
+
+      fetchDetails();
+      return;
+    }
+
+    // Calculate travel time
+    const fetchTravelTime = async () => {
+      const token = getAccessToken();
+      if (!token) return;
+
+      try {
+        const mode = transportMode === 'transit' ? 'transit' : 'sedan';
+        const url = `${API_URL}/api/v1/directions?fromLat=${homeLocation.lat}&fromLng=${homeLocation.lng}&toLat=${selectedLocation.latitude}&toLng=${selectedLocation.longitude}&mode=${mode}`;
+
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setTravelTime({
+            minutes: data.etaMinutes,
+            distanceKm: data.distanceKm,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch travel time:', err);
+      }
+    };
+
+    fetchTravelTime();
+  }, [selectedLocation, homeLocation, transportMode, isDemoMode]);
+
+  // Handle location selection - fetch details including opening hours
+  const handleSelectLocation = async (suggestion: LocationSuggestion) => {
+    setSelectedLocation(suggestion);
+    setLocationQuery(suggestion.name);
+    setLocationSuggestions([]);
+    setBusinessHours(null); // Reset business hours
+
+    // Fetch place details for opening hours if it's a Google Place
+    if (!suggestion.placeId.startsWith('custom_') && !suggestion.placeId.startsWith('saved_')) {
+      const token = getAccessToken();
+      if (token) {
+        try {
+          const response = await fetch(
+            `${API_URL}/api/v1/locations/details/${suggestion.placeId}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include',
+            }
+          );
+          if (response.ok) {
+            const details = await response.json();
+            console.log('Place details received:', details);
+
+            // Update location with coordinates
+            setSelectedLocation({
+              ...suggestion,
+              latitude: details.latitude,
+              longitude: details.longitude,
+            });
+
+            // Set business hours separately
+            if (details.openingHours) {
+              console.log('Setting business hours:', details.openingHours);
+              setBusinessHours(details.openingHours);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch place details:', err);
+        }
+      }
+    }
+  };
+
   // Generate proposals based on real calendar data or demo data
   const proposals = useMemo(() => {
     if (isDemoMode) {
@@ -366,7 +591,7 @@ export default function ProposalScreen() {
     }
 
     const durationMinutes = parseInt(duration as string) || 60;
-    const slots = calculateAvailableSlots(calendarEvents, durationMinutes, 7, isUrgent, parsedInput);
+    let slots = calculateAvailableSlots(calendarEvents, durationMinutes, 7, isUrgent, parsedInput);
 
     // If no slots found, return a message proposal
     if (slots.length === 0) {
@@ -391,8 +616,60 @@ export default function ProposalScreen() {
       }];
     }
 
+    // Enhance slots with travel time, business hours, and weather
+    if (travelTime || businessHours) {
+      slots = slots.map(slot => {
+        const slotDate = new Date(slot.slotStart);
+        const dayOfWeek = slotDate.getDay(); // 0 = Sunday
+        const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to weekdayText index
+
+        // Update travel time from real data
+        const actualTravelMinutes = travelTime?.minutes || slot.travelMinutes;
+
+        // Calculate departure time
+        const departAt = new Date(slotDate.getTime() - actualTravelMinutes * 60 * 1000);
+
+        // Check business hours for this slot's day
+        let isBusinessOpen = true;
+        let hoursText = '';
+        if (businessHours?.weekdayText) {
+          hoursText = businessHours.weekdayText[dayIndex] || '';
+          // Check if "Closed" is in the text for that day
+          isBusinessOpen = !hoursText.toLowerCase().includes('closed');
+        }
+
+        // Update explanation with more details
+        const explanation = [...slot.explanation];
+        if (actualTravelMinutes > 0) {
+          // Remove old travel explanation and add updated one
+          const travelIdx = explanation.findIndex(e => e.includes('travel'));
+          if (travelIdx >= 0) explanation.splice(travelIdx, 1);
+          explanation.push(`${actualTravelMinutes} min travel time (real-time estimate)`);
+        }
+        if (!isBusinessOpen) {
+          explanation.push(`⚠️ Place is closed on ${slotDate.toLocaleDateString('en-US', { weekday: 'long' })}`);
+        }
+
+        // Adjust confidence if business is closed
+        let confidence = slot.confidence;
+        if (!isBusinessOpen) {
+          confidence = Math.max(0.3, confidence - 0.4);
+        }
+
+        return {
+          ...slot,
+          travelMinutes: actualTravelMinutes,
+          departAt: departAt.toISOString(),
+          explanation,
+          confidence,
+          businessOpen: isBusinessOpen,
+          businessHoursText: hoursText,
+        };
+      });
+    }
+
     return slots;
-  }, [isDemoMode, taskTitle, calendarEvents, duration, isUrgent, parsedInput]);
+  }, [isDemoMode, taskTitle, calendarEvents, duration, isUrgent, parsedInput, travelTime, businessHours]);
 
   // Update selected proposal when proposals change
   useEffect(() => {
@@ -468,7 +745,16 @@ export default function ProposalScreen() {
           type: isUrgent ? 'urgent' : 'other',
           source: 'managed',
           priority: isUrgent ? 10 : 5,
-          notes: parsedInput.location ? `Location: ${parsedInput.location}` : undefined,
+          // Include location ID if it's a saved location
+          locationId: selectedLocation?.placeId?.startsWith('saved_')
+            ? selectedLocation.placeId.replace('saved_', '')
+            : undefined,
+          // Include location in notes
+          notes: selectedLocation
+            ? `Location: ${selectedLocation.name}${selectedLocation.address !== selectedLocation.name ? `\n${selectedLocation.address}` : ''}${travelTime ? `\nTravel: ${travelTime.minutes} min (${travelTime.distanceKm} km)` : ''}`
+            : parsedInput.location
+              ? `Location: ${parsedInput.location}`
+              : undefined,
         }),
       });
 
@@ -598,9 +884,9 @@ export default function ProposalScreen() {
       )}
 
       {!loadingSlots && (
-        <>
-      {/* Transport Mode Toggle */}
-      <View style={styles.transportSection}>
+        <View>
+          {/* Transport Mode Toggle */}
+          <View style={styles.transportSection}>
         <Text style={styles.sectionLabel}>Transport Mode</Text>
         <View style={styles.transportToggle}>
           <TouchableOpacity
@@ -644,6 +930,113 @@ export default function ProposalScreen() {
               {isUrgent && <Text style={styles.urgencyCheck}>✓</Text>}
             </View>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Location Input */}
+      {!isDemoMode && (
+        <View style={styles.locationSection}>
+          <Text style={styles.sectionLabel}>Location (optional)</Text>
+          <View style={styles.locationInputContainer}>
+            <Text style={styles.locationInputIcon}>📍</Text>
+            <TextInput
+              style={styles.locationInput}
+              placeholder="Search for a place..."
+              placeholderTextColor="#666"
+              value={locationQuery}
+              onChangeText={setLocationQuery}
+            />
+            {loadingLocation && <ActivityIndicator size="small" color="#3b82f6" />}
+            {selectedLocation && (
+              <TouchableOpacity onPress={() => {
+                setSelectedLocation(null);
+                setLocationQuery('');
+                setTravelTime(null);
+              }}>
+                <Text style={styles.locationClear}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Location Suggestions */}
+          {!selectedLocation && (locationSuggestions.length > 0 || (locationQuery.length >= 2 && !loadingLocation)) && (
+            <View style={styles.locationSuggestions}>
+              {/* Show API suggestions first */}
+              {locationSuggestions.map((suggestion) => (
+                <TouchableOpacity
+                  key={suggestion.placeId}
+                  style={styles.locationSuggestion}
+                  onPress={() => handleSelectLocation(suggestion)}
+                >
+                  <Text style={styles.suggestionIcon}>
+                    {suggestion.placeId.startsWith('saved_') ? '⭐' : '📍'}
+                  </Text>
+                  <View style={styles.suggestionContent}>
+                    <Text style={styles.suggestionName}>{suggestion.name}</Text>
+                    <Text style={styles.suggestionAddress} numberOfLines={1}>
+                      {suggestion.address}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+              {/* Always show option to use typed text as custom location */}
+              {locationQuery.length >= 2 && (
+                <TouchableOpacity
+                  style={[styles.locationSuggestion, styles.customLocationOption]}
+                  onPress={() => handleSelectLocation({
+                    placeId: `custom_${Date.now()}`,
+                    name: locationQuery,
+                    address: locationQuery,
+                  })}
+                >
+                  <Text style={styles.suggestionIcon}>➕</Text>
+                  <View style={styles.suggestionContent}>
+                    <Text style={styles.suggestionName}>Use "{locationQuery}"</Text>
+                    <Text style={styles.suggestionAddress}>Custom location</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* Travel Time Display */}
+          {selectedLocation && travelTime && homeLocation && (
+            <View style={styles.travelTimeCard}>
+              <View style={styles.travelTimeRow}>
+                <Text style={styles.travelTimeIcon}>
+                  {transportMode === 'transit' ? '🚌' : '🚗'}
+                </Text>
+                <View style={styles.travelTimeContent}>
+                  <Text style={styles.travelTimeLabel}>From: {homeLocation.address}</Text>
+                  <Text style={styles.travelTimeValue}>
+                    {travelTime.minutes} min • {travelTime.distanceKm.toFixed(1)} km
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.travelTimeNote}>
+                To: {selectedLocation.name}
+              </Text>
+              {/* Business Hours - inline */}
+              {businessHours && (
+                <View style={[styles.businessHoursInline, !businessHours.isOpen && styles.businessHoursClosed]}>
+                  <Text style={styles.businessHoursText}>
+                    {businessHours.isOpen ? '✅ Open now' : '⚠️ Closed now'}
+                    {businessHours.weekdayText?.[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1] &&
+                      ` • ${businessHours.weekdayText[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]}`
+                    }
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {selectedLocation && !travelTime && !homeLocation && (
+            <View style={styles.travelTimeNote}>
+              <Text style={styles.noHomeNote}>
+                Set a home location in Settings to see travel times
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -711,6 +1104,15 @@ export default function ProposalScreen() {
                   </Text>
                 </View>
 
+                {/* Business Hours Warning */}
+                {proposal.businessOpen === false && (
+                  <View style={styles.slotClosedWarning}>
+                    <Text style={styles.slotClosedText}>
+                      ⚠️ Closed: {proposal.businessHoursText || 'Check hours'}
+                    </Text>
+                  </View>
+                )}
+
                 {/* Moved Items */}
                 {proposal.movedItems && proposal.movedItems.length > 0 && (
                   <View style={styles.movedSection}>
@@ -775,8 +1177,8 @@ export default function ProposalScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.bottomPadding} />
-        </>
+          <View style={styles.bottomPadding} />
+        </View>
       )}
     </ScrollView>
   );
@@ -988,6 +1390,142 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  locationSection: {
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  locationInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+  },
+  locationInputIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  locationInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    paddingVertical: 12,
+  },
+  locationClear: {
+    color: '#888',
+    fontSize: 18,
+    padding: 8,
+  },
+  locationSuggestions: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 12,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  locationSuggestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3d3d5c',
+  },
+  customLocationOption: {
+    backgroundColor: '#1a1a2e',
+    borderBottomWidth: 0,
+  },
+  suggestionIcon: {
+    fontSize: 16,
+    marginRight: 12,
+  },
+  suggestionContent: {
+    flex: 1,
+  },
+  suggestionName: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  suggestionAddress: {
+    color: '#888',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  travelTimeCard: {
+    backgroundColor: '#1e3a5f',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+  },
+  travelTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  travelTimeIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  travelTimeContent: {
+    flex: 1,
+  },
+  travelTimeLabel: {
+    color: '#60a5fa',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  travelTimeValue: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  travelTimeNote: {
+    color: '#93c5fd',
+    fontSize: 12,
+    marginTop: 10,
+  },
+  businessHoursInline: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#3b82f680',
+  },
+  businessHoursClosed: {
+    borderTopColor: '#ef444480',
+  },
+  businessHoursText: {
+    color: '#fbbf24',
+    fontSize: 13,
+  },
+  noHomeNote: {
+    color: '#888',
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  closedWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#7f1d1d',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+  },
+  closedWarningIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  closedWarningText: {
+    color: '#fca5a5',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  closedWarningHours: {
+    color: '#f87171',
+    fontSize: 12,
+    marginTop: 2,
+  },
   proposalsSection: {
     paddingHorizontal: 16,
   },
@@ -1106,6 +1644,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   disruptionText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  slotClosedWarning: {
+    backgroundColor: '#7f1d1d40',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  slotClosedText: {
+    color: '#fca5a5',
     fontSize: 12,
     fontWeight: '500',
   },

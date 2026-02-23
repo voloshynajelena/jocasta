@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -16,6 +17,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import {
   LocationsService,
@@ -38,6 +40,29 @@ export class LocationsController {
   async list(@CurrentUser('id') userId: string) {
     const locations = await this.locationsService.findMany(userId);
     return { locations, total: locations.length };
+  }
+
+  @Get('search')
+  @ApiOperation({ summary: 'Search places' })
+  @ApiQuery({ name: 'q', required: true, type: String })
+  @ApiResponse({ status: 200, description: 'Returns place suggestions' })
+  async search(
+    @CurrentUser('id') userId: string,
+    @Query('q') query: string,
+  ) {
+    if (!query || query.length < 2) {
+      return { suggestions: [] };
+    }
+    const suggestions = await this.locationsService.searchPlaces(query, userId);
+    return { suggestions };
+  }
+
+  @Get('details/:placeId')
+  @ApiOperation({ summary: 'Get place details' })
+  @ApiResponse({ status: 200, description: 'Returns place coordinates' })
+  async getPlaceDetails(@Param('placeId') placeId: string) {
+    const details = await this.locationsService.getPlaceDetails(placeId);
+    return details || { error: 'Place not found' };
   }
 
   @Get(':id')

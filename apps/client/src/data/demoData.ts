@@ -95,6 +95,12 @@ export interface Proposal {
   explanation: string[];
   disruption: 'none' | 'low' | 'medium' | 'high';
   movedItems?: string[];
+  weatherImpact?: {
+    condition: string;
+    adjustmentPercent: number;
+  };
+  businessOpen?: boolean;
+  businessHoursText?: string;
 }
 
 export interface Constraint {

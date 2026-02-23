@@ -54,6 +54,14 @@ export default function SettingsScreen() {
   const [lockGoogleEvents, setLockGoogleEvents] = useState(true);
   const [includeGoogleInPlanning, setIncludeGoogleInPlanning] = useState(true);
 
+  // Home location state
+  const [homeLocation, setHomeLocation] = useState<{ id: string; name: string; address: string } | null>(null);
+  const [homeLocationModalVisible, setHomeLocationModalVisible] = useState(false);
+  const [homeAddressInput, setHomeAddressInput] = useState('');
+  const [savingHome, setSavingHome] = useState(false);
+  const [homeSuggestions, setHomeSuggestions] = useState<Array<{ placeId: string; name: string; address: string }>>([]);
+  const [loadingHomeSuggestions, setLoadingHomeSuggestions] = useState(false);
+
   const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
 
   // Get access token for API calls
@@ -69,8 +77,112 @@ export default function SettingsScreen() {
     if (!isDemoMode && isAuthenticated) {
       fetchSyncStatus();
       fetchUserSettings();
+      fetchHomeLocation();
     }
   }, [isDemoMode, isAuthenticated]);
+
+  const fetchHomeLocation = async () => {
+    try {
+      const token = getAccessToken();
+      if (!token) return;
+      const response = await fetch(`${API_URL}/api/v1/locations`, {
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const defaultLoc = data.locations?.find((l: any) => l.isDefault);
+        if (defaultLoc) {
+          setHomeLocation({ id: defaultLoc.id, name: defaultLoc.name, address: defaultLoc.address });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch home location:', err);
+    }
+  };
+
+  // Search for home address suggestions
+  useEffect(() => {
+    if (!homeLocationModalVisible || homeAddressInput.length < 3) {
+      setHomeSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const token = getAccessToken();
+      if (!token) return;
+
+      setLoadingHomeSuggestions(true);
+      try {
+        const response = await fetch(
+          `${API_URL}/api/v1/locations/search?q=${encodeURIComponent(homeAddressInput)}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setHomeSuggestions(data.suggestions || []);
+        }
+      } catch (err) {
+        console.error('Failed to search addresses:', err);
+      } finally {
+        setLoadingHomeSuggestions(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [homeAddressInput, homeLocationModalVisible]);
+
+  const saveHomeLocation = async (selectedAddress?: string) => {
+    const addressToSave = selectedAddress || homeAddressInput.trim();
+    if (!addressToSave) return;
+    const token = getAccessToken();
+    if (!token) return;
+
+    setSavingHome(true);
+    try {
+      // Create or update home location
+      const method = homeLocation ? 'PUT' : 'POST';
+      const url = homeLocation
+        ? `${API_URL}/api/v1/locations/${homeLocation.id}`
+        : `${API_URL}/api/v1/locations`;
+
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Home',
+          address: homeAddressInput.trim(),
+          isDefault: true,
+        }),
+      });
+
+      if (response.ok) {
+        const saved = await response.json();
+        setHomeLocation({ id: saved.id, name: saved.name, address: saved.address });
+        setHomeLocationModalVisible(false);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        window.alert(err.message || 'Failed to save location');
+      }
+    } catch (err: any) {
+      window.alert(err.message || 'Failed to save location');
+    } finally {
+      setSavingHome(false);
+    }
+  };
 
   const fetchUserSettings = async () => {
     try {
@@ -244,6 +356,104 @@ export default function SettingsScreen() {
           </View>
         </View>
       </View>
+
+      {/* Home Location Section */}
+      {!isDemoMode && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>HOME LOCATION</Text>
+          <TouchableOpacity
+            style={[styles.settingRow, { backgroundColor: colors.card }]}
+            onPress={() => {
+              setHomeAddressInput(homeLocation?.address || '');
+              setHomeLocationModalVisible(true);
+            }}
+          >
+            <Text style={styles.homeIcon}>🏠</Text>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>
+                {homeLocation ? homeLocation.name : 'Set Home Address'}
+              </Text>
+              <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                {homeLocation ? homeLocation.address : 'Required for travel time calculations'}
+              </Text>
+            </View>
+            <Text style={[styles.chevron, { color: colors.textMuted }]}>›</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Home Location Modal */}
+      <Modal
+        visible={homeLocationModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHomeLocationModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: '80%' }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Set Home Address</Text>
+            <View style={styles.modalRow}>
+              <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Search Address</Text>
+              <TextInput
+                style={[styles.modalInput, styles.addressInput, { backgroundColor: colors.backgroundSecondary, color: colors.text }]}
+                value={homeAddressInput}
+                onChangeText={setHomeAddressInput}
+                placeholder="Start typing your address..."
+                placeholderTextColor={colors.textMuted}
+              />
+              {loadingHomeSuggestions && <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 8 }} />}
+            </View>
+
+            {/* Address Suggestions */}
+            {homeSuggestions.length > 0 && (
+              <ScrollView style={styles.suggestionsContainer} showsVerticalScrollIndicator={false}>
+                {homeSuggestions.map((suggestion) => (
+                  <TouchableOpacity
+                    key={suggestion.placeId}
+                    style={[styles.suggestionItem, { backgroundColor: colors.backgroundSecondary }]}
+                    onPress={() => {
+                      setHomeAddressInput(suggestion.address);
+                      setHomeSuggestions([]);
+                      saveHomeLocation(suggestion.address);
+                    }}
+                  >
+                    <Text style={styles.suggestionItemIcon}>📍</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.suggestionItemName, { color: colors.text }]}>{suggestion.name}</Text>
+                      <Text style={[styles.suggestionItemAddress, { color: colors.textMuted }]} numberOfLines={1}>
+                        {suggestion.address}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setHomeLocationModalVisible(false);
+                  setHomeSuggestions([]);
+                }}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSave]}
+                onPress={() => saveHomeLocation()}
+                disabled={savingHome || !homeAddressInput.trim()}
+              >
+                {savingHome ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalButtonText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Theme Selection */}
       <View style={styles.section}>
@@ -1308,6 +1518,38 @@ const styles = StyleSheet.create({
   },
   settingInfo: {
     flex: 1,
+  },
+  homeIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  addressInput: {
+    textAlign: 'left',
+    minHeight: 44,
+    textAlignVertical: 'top',
+  },
+  suggestionsContainer: {
+    maxHeight: 200,
+    marginBottom: 16,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  suggestionItemIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  suggestionItemName: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  suggestionItemAddress: {
+    fontSize: 12,
+    marginTop: 2,
   },
   settingLabel: {
     color: '#fff',

@@ -1,0 +1,68 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build:
+    name: Build & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+
+  deploy-server:
+    name: Deploy Server
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: bervProject/railway-deploy@main
+        if: ${{ vars.RAILWAY_PROJECT_ID != '' }}
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: server
+
+      # Alternative: Deploy to Fly.io
+      - name: Deploy to Fly.io
+        if: ${{ vars.FLY_APP_NAME != '' }}
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Fly Deploy
+        if: ${{ vars.FLY_APP_NAME != '' }}
+        run: flyctl deploy --remote-only -c apps/server/fly.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

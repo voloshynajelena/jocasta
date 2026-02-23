@@ -1,0 +1,9 @@
+<svg width="1284" height="2778" viewBox="0 0 1284 2778" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1284" height="2778" fill="#1a2744"/>
+
+  <!-- Logo J. centered -->
+  <g transform="translate(392, 1089)">
+    <path d="M200 0C200 -22.0914 217.909 -40 240 -40H320C342.091 -40 360 -22.0914 360 0V384C360 490.457 273.457 576 168 576H120C66.9807 576 24 533.019 24 480V480C24 426.981 66.9807 384 120 384H200V0Z" fill="#4eca8b"/>
+    <circle cx="440" cy="520" r="56" fill="#4eca8b"/>
+  </g>
+</svg>

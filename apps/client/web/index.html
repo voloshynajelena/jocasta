@@ -5,23 +5,152 @@
   <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
   <title>Jocasta</title>
+
+  <!-- Favicons -->
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+
+  <!-- PWA Meta -->
+  <meta name="theme-color" content="#1a2744" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Jocasta" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Jocasta - AI Scheduling Assistant" />
+  <meta property="og:description" content="Smart scheduling with travel awareness and Google Calendar sync" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/assets/logo-icon.svg" />
+
   <style>
     html, body { height: 100%; margin: 0; }
-    body { overflow: hidden; background-color: #1a1a2e; }
+    body {
+      overflow: hidden;
+      background-color: #1a2744;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
     #root { display: flex; height: 100%; }
+
+    /* Loading Screen */
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #1a2744;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      transition: opacity 0.3s ease-out;
+    }
+
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-text {
+      display: flex;
+      gap: 2px;
+      font-size: 32px;
+      font-weight: 700;
+      color: #5b8def;
+      height: 50px;
+    }
+
+    .loading-text span {
+      opacity: 0;
+      animation: fadeIn 0.1s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    .loading-dots {
+      display: flex;
+      gap: 8px;
+      margin-top: 40px;
+    }
+
+    .loading-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: #5b8def;
+      animation: bounce 1.4s ease-in-out infinite;
+    }
+
+    .loading-dot:nth-child(1) { animation-delay: 0s; }
+    .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.5); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
   </style>
+
   <!-- Polyfill for import.meta -->
   <script>
     if (typeof importMeta === 'undefined') {
       window.importMeta = { url: window.location.href };
     }
-    // Polyfill import.meta for non-module scripts
     Object.defineProperty(window, '__import_meta__', {
       get: function() { return { url: window.location.href }; }
+    });
+
+    // Loading animation
+    document.addEventListener('DOMContentLoaded', function() {
+      const letters = 'J.O.C.A.S.T.A.'.split('');
+      const textContainer = document.getElementById('loading-letters');
+      if (textContainer) {
+        let index = 0;
+        const interval = setInterval(function() {
+          if (index < letters.length) {
+            const span = document.createElement('span');
+            span.textContent = letters[index];
+            span.style.animationDelay = (index * 0.12) + 's';
+            textContainer.appendChild(span);
+            index++;
+          } else {
+            // Reset animation
+            setTimeout(function() {
+              textContainer.innerHTML = '';
+              index = 0;
+            }, 800);
+          }
+        }, 120);
+
+        // Hide loading screen when app is ready
+        window.hideLoadingScreen = function() {
+          clearInterval(interval);
+          const loadingScreen = document.getElementById('loading-screen');
+          if (loadingScreen) {
+            loadingScreen.classList.add('hidden');
+            setTimeout(function() {
+              loadingScreen.remove();
+            }, 300);
+          }
+        };
+      }
     });
   </script>
 </head>
 <body>
+  <div id="loading-screen">
+    <div class="loading-text" id="loading-letters"></div>
+    <div class="loading-dots">
+      <div class="loading-dot"></div>
+      <div class="loading-dot"></div>
+      <div class="loading-dot"></div>
+    </div>
+  </div>
   <noscript>You need to enable JavaScript to run this app.</noscript>
   <div id="root"></div>
 </body>

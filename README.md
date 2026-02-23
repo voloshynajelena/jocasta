@@ -248,19 +248,108 @@ curl http://localhost:3001/api/v1/integrations/google/status \
 
 ## Production Deployment
 
+### Option 1: Railway (Recommended)
+
+Railway provides easy deployment with managed PostgreSQL.
+
+1. **Create Railway Project**
+   - Go to [railway.app](https://railway.app)
+   - Create new project from GitHub repo
+   - Add PostgreSQL database
+
+2. **Configure Environment Variables**
+   Add all variables from `.env.example` in Railway dashboard.
+
+3. **Deploy**
+   ```bash
+   # Railway will auto-detect Dockerfile
+   # Or use railway.json configuration
+   railway up
+   ```
+
+### Option 2: Fly.io
+
+1. **Install Fly CLI**
+   ```bash
+   brew install flyctl
+   flyctl auth login
+   ```
+
+2. **Launch App**
+   ```bash
+   cd apps/server
+   flyctl launch --config fly.toml
+   ```
+
+3. **Set Secrets**
+   ```bash
+   flyctl secrets set DATABASE_URL="..." JWT_SECRET="..." --app jocasta-api
+   ```
+
+4. **Add PostgreSQL**
+   ```bash
+   flyctl postgres create --name jocasta-db
+   flyctl postgres attach jocasta-db --app jocasta-api
+   ```
+
+### Option 3: Docker Compose (Self-hosted)
+
+```bash
+# Copy environment file
+cp .env.example .env.prod
+# Edit .env.prod with production values
+
+# Build and run
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+### Database Migrations
+
+Migrations run automatically on container start. For manual control:
+
+```bash
+# Run migrations
+cd apps/server && npx prisma migrate deploy
+
+# Generate client
+cd apps/server && npx prisma generate
+```
+
 ### Environment Variables
 
-Set all `.env` variables as environment variables/secrets in your deployment platform.
+Set all `.env` variables as environment variables/secrets in your deployment platform:
 
-### Database
+**Required:**
+- `DATABASE_URL` - PostgreSQL connection string
+- `JWT_SECRET` - Random 32-byte secret
+- `JWT_REFRESH_SECRET` - Another random 32-byte secret
+- `ENCRYPTION_KEY` - 32-byte key for token encryption
 
-Use a managed PostgreSQL service (Supabase, Neon, Railway, etc.)
+**Optional (graceful degradation if missing):**
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` - Google OAuth
+- `GOOGLE_MAPS_API_KEY` - Directions (falls back to heuristics)
+- `TELEGRAM_BOT_TOKEN` - Notifications
+- `OPENAI_API_KEY` - AI extraction (falls back to deterministic parser)
+
+### CI/CD
+
+GitHub Actions workflow at `.github/workflows/ci.yml`:
+- Runs lint and tests on PR
+- Builds on merge to main
+- Auto-deploys to Railway/Fly.io (configure secrets in GitHub)
+
+**Required GitHub Secrets:**
+- `RAILWAY_TOKEN` - For Railway deployment
+- `FLY_API_TOKEN` - For Fly.io deployment
 
 ### Build
 
 ```bash
-# Build server
-cd apps/server && pnpm build
+# Build all packages
+pnpm build
+
+# Build server only
+pnpm build --filter=@jocasta/server
 
 # Build web client
 cd apps/client && pnpm build:web

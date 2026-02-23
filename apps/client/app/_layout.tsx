@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Platform } from 'react-native';
 import { Stack, useSegments } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '../src/store/authStore';
 import { useThemeStore } from '../src/store/themeStore';
 import { AppHeader } from '../src/components/AppHeader';
+import { LoadingScreen } from '../src/components/LoadingScreen';
 
 console.log('[Layout Module] Loaded');
 
@@ -63,10 +64,27 @@ function LayoutContent() {
 }
 
 export default function RootLayout() {
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     console.log('[Layout] Calling initialize...');
-    useAuthStore.getState().initialize();
+    const init = async () => {
+      await useAuthStore.getState().initialize();
+
+      // Hide web loading screen if present
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        (window as { hideLoadingScreen?: () => void }).hideLoadingScreen?.();
+      }
+
+      // Small delay for smooth transition
+      setTimeout(() => setIsLoading(false), 500);
+    };
+    init();
   }, []);
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

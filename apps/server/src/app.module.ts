@@ -14,6 +14,7 @@ import { UsersModule } from './modules/users/users.module';
 import { EventsModule } from './modules/events/events.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { LocationsModule } from './modules/locations/locations.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { PlannerModule } from './modules/planner/planner.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -48,6 +49,7 @@ import { HealthModule } from './modules/health/health.module';
     EventsModule,
     TasksModule,
     LocationsModule,
+    ContactsModule,
     PlannerModule,
     NotificationsModule,
     SettingsModule,

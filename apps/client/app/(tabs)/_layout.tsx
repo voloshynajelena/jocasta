@@ -52,15 +52,16 @@ function WeekIcon({ color }: { color: string }) {
   );
 }
 
-// Monochrome AI/Sparkle Icon
-function AIIcon({ color }: { color: string }) {
+// Monochrome Planning Icon (stacked lines with sparkle)
+function PlanningIcon({ color }: { color: string }) {
   return (
     <View style={styles.iconContainer}>
-      <View style={[styles.starCenter, { backgroundColor: color }]} />
-      <View style={[styles.starRay, styles.rayTop, { backgroundColor: color }]} />
-      <View style={[styles.starRay, styles.rayBottom, { backgroundColor: color }]} />
-      <View style={[styles.starRay, styles.rayLeft, { backgroundColor: color }]} />
-      <View style={[styles.starRay, styles.rayRight, { backgroundColor: color }]} />
+      {/* Stacked lines */}
+      <View style={[styles.planLine, styles.planLine1, { backgroundColor: color }]} />
+      <View style={[styles.planLine, styles.planLine2, { backgroundColor: color }]} />
+      <View style={[styles.planLine, styles.planLine3, { backgroundColor: color }]} />
+      {/* Sparkle indicator */}
+      <View style={[styles.planSparkle, { backgroundColor: color }]} />
     </View>
   );
 }
@@ -123,8 +124,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="planner"
         options={{
-          title: 'AI',
-          tabBarIcon: ({ color }) => <AIIcon color={color} />,
+          title: 'Planning',
+          tabBarIcon: ({ color }) => <PlanningIcon color={color} />,
         }}
       />
       <Tabs.Screen
@@ -225,22 +226,35 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 1,
   },
-  // AI sparkle icon
-  starCenter: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  starRay: {
+  // Planning icon - stacked lines with sparkle
+  planLine: {
     position: 'absolute',
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
+    height: 2,
+    borderRadius: 1,
   },
-  rayTop: { top: 2 },
-  rayBottom: { bottom: 2 },
-  rayLeft: { left: 2 },
-  rayRight: { right: 2 },
+  planLine1: {
+    width: 16,
+    top: 5,
+    left: 2,
+  },
+  planLine2: {
+    width: 12,
+    top: 10,
+    left: 2,
+  },
+  planLine3: {
+    width: 14,
+    top: 15,
+    left: 2,
+  },
+  planSparkle: {
+    position: 'absolute',
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    top: 3,
+    right: 2,
+  },
   // Inbox icon
   inboxIcon: {
     width: 20,

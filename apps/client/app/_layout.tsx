@@ -48,6 +48,14 @@ function LayoutContent() {
             title: 'Review Proposal',
           }}
         />
+        <Stack.Screen
+          name="batch-review/[sessionId]"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        />
       </Stack>
       {Platform.OS !== 'web' && <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />}
     </View>

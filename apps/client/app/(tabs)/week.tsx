@@ -36,7 +36,7 @@ export default function WeekScreen() {
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/events?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`,
+        `${API_URL}/api/v1/events?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&limit=150`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -50,6 +50,7 @@ export default function WeekScreen() {
         const data = await response.json();
         // API returns { events: [...], total, ... }
         const eventsArray = data.events || [];
+        console.log('[Week] Fetched', eventsArray.length, 'events from API');
         const mappedEvents: Event[] = eventsArray.map((e: any) => ({
           id: e.id,
           title: e.title,
@@ -63,9 +64,11 @@ export default function WeekScreen() {
           source: e.source || 'external_google',
         }));
         setApiEvents(mappedEvents);
+      } else {
+        console.error('[Week] API error:', response.status, await response.text());
       }
     } catch (err) {
-      console.error('Failed to fetch week events:', err);
+      console.error('[Week] Failed to fetch events:', err);
     }
   }, [isDemoMode, isAuthenticated]);
 
@@ -124,10 +127,12 @@ export default function WeekScreen() {
 
   // Fetch events when week changes
   useEffect(() => {
+    console.log('[Week] useEffect - isDemoMode:', isDemoMode, 'isAuthenticated:', isAuthenticated, 'weekDays:', weekDays.length);
     if (weekDays.length > 0 && !isDemoMode && isAuthenticated) {
       const startDate = new Date(weekDays[0]);
       const endDate = new Date(weekDays[6]);
       endDate.setHours(23, 59, 59, 999);
+      console.log('[Week] Fetching events from', startDate.toISOString(), 'to', endDate.toISOString());
       fetchEvents(startDate, endDate);
     }
   }, [weekDays, isDemoMode, isAuthenticated, fetchEvents]);
@@ -135,6 +140,7 @@ export default function WeekScreen() {
   // Group events by day (using local timezone)
   const eventsByDay = useMemo(() => {
     const events = isDemoMode ? DEMO_EVENTS : apiEvents;
+    console.log('[Week] Grouping', events.length, 'events (isDemoMode:', isDemoMode, ')');
     const map = new Map<string, Event[]>();
 
     events.forEach(event => {
@@ -157,6 +163,8 @@ export default function WeekScreen() {
         new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
       ));
     });
+
+    console.log('[Week] Events by day:', Array.from(map.entries()).map(([k, v]) => `${k}: ${v.length}`).join(', '));
 
     return map;
   }, [isDemoMode, apiEvents]);

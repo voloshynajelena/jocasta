@@ -88,7 +88,7 @@ export class EventsService {
     }
 
     const page = query.page || 1;
-    const limit = Math.min(query.limit || 50, 100);
+    const limit = Math.min(query.limit || 50, 200);
     const skip = (page - 1) * limit;
 
     const [events, total] = await Promise.all([

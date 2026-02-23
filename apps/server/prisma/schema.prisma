@@ -54,6 +54,8 @@ model User {
   notificationJobs      NotificationJob[]
   googleSyncStates      GoogleSyncState[]
   userSettings          UserSettings?
+  contacts              Contact[]
+  batchPlanSessions     BatchPlanSession[]
 
   @@map("users")
 }
@@ -114,6 +116,7 @@ model Event {
   scheduledTasks    Task[]
   travelSegmentsTo  TravelSegment[] @relation("TravelToEvent")
   notificationJobs  NotificationJob[]
+  participants      EventParticipant[]
 
   @@index([userId, startAt])
   @@index([userId, source])
@@ -148,6 +151,66 @@ model Task {
 
   @@index([userId, status])
   @@map("tasks")
+}
+
+// ============================================================================
+// Contacts & Batch Planning
+// ============================================================================
+
+model Contact {
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  name       String
+  email      String?
+  phone      String?
+  category   String  @default("general") // general, work, personal, family, service
+  source     String  @default("manual") // manual, extracted
+  confidence Float   @default(1.0)
+  metadata   Json    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventParticipants EventParticipant[]
+
+  @@unique([userId, email])
+  @@index([userId, name])
+  @@map("contacts")
+}
+
+model EventParticipant {
+  id        String @id @default(uuid())
+  eventId   String @map("event_id")
+  contactId String @map("contact_id")
+  role      String @default("attendee") // attendee, organizer, host
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, contactId])
+  @@map("event_participants")
+}
+
+model BatchPlanSession {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  rawText       String   @db.Text
+  status        String   @default("pending") // pending, committed, cancelled
+  extractedData Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+  expiresAt     DateTime @map("expires_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("batch_plan_sessions")
 }
 
 model RecurrenceRule {

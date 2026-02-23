@@ -811,7 +811,13 @@ export default function ProposalScreen() {
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/(tabs)');
+          }
+        }}>
           <Text style={styles.backText}>Cancel</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>AI Proposals</Text>
@@ -1172,7 +1178,13 @@ export default function ProposalScreen() {
           <Text style={styles.modifyText}>Choose Custom Time</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.cancelButton} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/(tabs)');
+          }
+        }}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
       </View>

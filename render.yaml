@@ -39,6 +39,25 @@ services:
       # - OPENAI_API_KEY
       # - TELEGRAM_BOT_TOKEN
 
+  # Expo Web Client
+  - type: web
+    name: jocasta-app
+    runtime: static
+    buildCommand: |
+      npm install -g pnpm &&
+      cd apps/client &&
+      pnpm install --frozen-lockfile &&
+      EXPO_PUBLIC_API_URL=https://jocasta-api.onrender.com npx expo export --platform web
+    staticPublishPath: apps/client/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
 databases:
   - name: jocasta-db
     plan: free

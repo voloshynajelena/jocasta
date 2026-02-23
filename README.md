@@ -248,7 +248,39 @@ curl http://localhost:3001/api/v1/integrations/google/status \
 
 ## Production Deployment
 
-### Option 1: Railway (Recommended)
+### Option 1: Render (Recommended)
+
+Render provides easy deployment with free tier PostgreSQL.
+
+1. **Push code to GitHub**
+   ```bash
+   git add .
+   git commit -m "Add Render deployment config"
+   git push origin main
+   ```
+
+2. **Connect to Render**
+   - Go to [render.com](https://render.com)
+   - Click "New" → "Blueprint"
+   - Connect your GitHub repo
+   - Render auto-detects `render.yaml` and creates services
+
+3. **Add Secret Environment Variables**
+   In Render dashboard, add these to the web service:
+   - `GOOGLE_CLIENT_ID` - From Google Cloud Console
+   - `GOOGLE_CLIENT_SECRET` - From Google Cloud Console
+   - `GOOGLE_REDIRECT_URI` - `https://jocasta-api.onrender.com/api/v1/auth/google/callback`
+   - `GOOGLE_MAPS_API_KEY` - (optional)
+   - `OPENAI_API_KEY` - (optional, for AI extraction)
+   - `TELEGRAM_BOT_TOKEN` - (optional)
+
+4. **Update Client API URL**
+   Update `apps/client/.env`:
+   ```
+   EXPO_PUBLIC_API_URL=https://jocasta-api.onrender.com
+   ```
+
+### Option 2: Railway
 
 Railway provides easy deployment with managed PostgreSQL.
 

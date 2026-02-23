@@ -11,8 +11,8 @@ services:
     buildCommand: |
       npm install -g pnpm turbo &&
       pnpm install --frozen-lockfile --prod=false &&
-      pnpm build --filter=@jocasta/server &&
-      cd apps/server && npx prisma generate
+      cd apps/server && npx prisma generate &&
+      cd ../.. && pnpm build --filter=@jocasta/server
     startCommand: cd apps/server && npx prisma migrate deploy && node dist/main.js
     healthCheckPath: /api/health
     envVars:

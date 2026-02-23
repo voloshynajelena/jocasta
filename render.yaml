@@ -14,7 +14,7 @@ services:
       cd apps/server && npx prisma generate &&
       cd ../.. && pnpm build --filter=@jocasta/server
     startCommand: cd apps/server && npx prisma migrate deploy && node dist/src/main.js
-    healthCheckPath: /api/health
+    healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
         value: production

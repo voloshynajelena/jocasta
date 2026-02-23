@@ -1,21 +1,18 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Image } from 'react-native';
 import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'expo-router';
-import Svg, { Path, Circle } from 'react-native-svg';
 
 import { useThemeStore } from '../store/themeStore';
 import { useAuthStore } from '../store/authStore';
 
-// Blue J. logo for header
+// Blue J. logo for header - using actual logo image
 function HeaderLogo() {
   return (
-    <Svg width={64} height={32} viewBox="0 0 120 60">
-      <Path
-        d="M42 8C42 5.79086 43.7909 4 46 4H52C54.2091 4 56 5.79086 56 8V38C56 48.4934 47.4934 57 37 57H32C26.4772 57 22 52.5228 22 47C22 41.4772 26.4772 37 32 37H42V8Z"
-        fill="#5b8def"
-      />
-      <Circle cx="72" cy="47" r="10" fill="#5b8def" />
-    </Svg>
+    <Image
+      source={require('../../assets/images/logo.png')}
+      style={{ width: 32, height: 32 }}
+      resizeMode="contain"
+    />
   );
 }
 

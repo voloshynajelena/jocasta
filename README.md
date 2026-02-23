@@ -2,6 +2,10 @@
 
 Jocasta is an iOS-first + Web mobile-first scheduling assistant that uses AI to help you manage your calendar efficiently. It syncs bi-directionally with Google Calendar, considers travel time and weather conditions, and sends intelligent notifications via Telegram.
 
+**Live Demo:**
+- **Web App:** https://jocasta-io.vercel.app
+- **API:** https://jocasta-api.onrender.com
+
 ## Features
 
 - **Natural Language Input**: Add events by typing "Pick up groceries at Costco tomorrow" and get smart scheduling proposals

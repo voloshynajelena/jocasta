@@ -174,8 +174,9 @@ export class AuthService {
   async exchangeGoogleCodeForMobile(code: string): Promise<AuthTokens> {
     const clientId = this.configService.get('google.clientId');
     const clientSecret = this.configService.get('google.clientSecret');
-    // MUST use localhost for Google OAuth (they don't allow private IPs)
-    const redirectUri = 'http://localhost:3001/api/v1/auth/google/mobile-callback';
+    // Use configured API URL or default to localhost for development
+    const apiUrl = this.configService.get('API_URL') || 'http://localhost:3001';
+    const redirectUri = `${apiUrl}/api/v1/auth/google/mobile-callback`;
 
     // Exchange code for Google tokens
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {

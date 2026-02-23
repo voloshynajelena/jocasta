@@ -64,8 +64,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Start Google OAuth flow (mobile) - redirects to Google' })
   async googleMobileStart(@Res() res: Response) {
     const clientId = this.configService.get('google.clientId');
-    // MUST use localhost for Google OAuth (they don't allow private IPs)
-    const redirectUri = 'http://localhost:3001/api/v1/auth/google/mobile-callback';
+    // Use configured redirect URI or build from API_URL
+    const apiUrl = this.configService.get('API_URL') || 'http://localhost:3001';
+    const redirectUri = `${apiUrl}/api/v1/auth/google/mobile-callback`;
     const state = 'mobile:' + this.authService.generateState();
 
     const scopes = [
@@ -107,9 +108,11 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] || '';
     const isWebBrowser = !userAgent.includes('Expo') && (userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari'));
 
+    const clientUrl = this.configService.get('CLIENT_URL') || 'http://localhost:8081';
+
     if (error || !code) {
       if (isWebBrowser) {
-        res.redirect(`http://localhost:2222/auth/error?message=${encodeURIComponent(error || 'No code')}`);
+        res.redirect(`${clientUrl}/auth/error?message=${encodeURIComponent(error || 'No code')}`);
       } else {
         res.redirect(`jocasta://auth/error?message=${encodeURIComponent(error || 'No code')}`);
       }
@@ -123,7 +126,7 @@ export class AuthController {
       if (isWebBrowser) {
         // Redirect to web app with tokens in URL
         res.redirect(
-          `http://localhost:2222/auth/success?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
+          `${clientUrl}/auth/success?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}`,
         );
       } else {
         // Redirect to mobile app with tokens
@@ -133,7 +136,7 @@ export class AuthController {
       }
     } catch (err: any) {
       if (isWebBrowser) {
-        res.redirect(`http://localhost:2222/auth/error?message=${encodeURIComponent(err.message)}`);
+        res.redirect(`${clientUrl}/auth/error?message=${encodeURIComponent(err.message)}`);
       } else {
         res.redirect(`jocasta://auth/error?message=${encodeURIComponent(err.message)}`);
       }
